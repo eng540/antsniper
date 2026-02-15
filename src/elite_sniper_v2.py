@@ -2141,15 +2141,14 @@ class EliteSniperV2:
         worker_logger.info(f"🚀 STARTING SMART SUBMISSION SEQUENCE...")
 
         for attempt in range(1, max_attempts + 1):
-            try:
-                # 1. FIND CAPTCHA INPUT
-                captcha_input = page.locator("input[name='captchaText']").first
-                if not captcha_input.is_visible():
-                    # Check if we already succeeded (race win)
-                    if self._check_success(page, worker_logger): return True
-                    worker_logger.warning("⚠️ Form/Captcha not visible - checking state...")
-                    time.sleep(1)
-                    continue
+            # 1. FIND CAPTCHA INPUT
+            captcha_input = page.locator("input[name='captchaText']").first
+            if not captcha_input.is_visible():
+                # Check if we already succeeded (race win)
+                if self._check_success(page, worker_logger): return True
+                worker_logger.warning("⚠️ Form/Captcha not visible - checking state...")
+                time.sleep(1)
+                continue
 
             # [TURBO PROTOCOL]
             # Replaced standard logic with Turbo Injection
