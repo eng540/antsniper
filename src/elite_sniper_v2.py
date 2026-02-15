@@ -2257,21 +2257,16 @@ class EliteSniperV2:
             "a[href*='showDay']"
         ]
         
-        # Month navigation patterns (common selectors on appointment sites)
+        # Month navigation patterns (ACTUAL SITE STRUCTURE)
+        # HTML: <a href="...dateStr=XX.XX.XXXX"><img src="images/go-next.gif"></a>
         next_month_selectors = [
-            "a.nat-nav-btn:has-text('»')",  # Next month arrow
-            "a[title*='next' i]",
-            "a[title*='weiter' i]",
-            "button:has-text('›')",
-            ".ui-datepicker-next"
+            "a:has(img[src*='go-next.gif'])",      # Primary selector
+            "a img[src*='go-next.gif']"            # Fallback
         ]
         
         prev_month_selectors = [
-            "a.nat-nav-btn:has-text('«')",  # Previous month arrow
-            "a[title*='previous' i]",
-            "a[title*='zurück' i]",
-            "button:has-text('‹')",
-            ".ui-datepicker-prev"
+            "a:has(img[src*='go-previous.gif'])",  # Primary selector
+            "a img[src*='go-previous.gif']"        # Fallback
         ]
         
         current_direction = "forward"  # Track navigation direction
