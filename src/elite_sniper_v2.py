@@ -1429,50 +1429,7 @@ class EliteSniperV2:
             else:
                  worker_logger.info("⏹️ Session ended without success")
                  return False
-                    
-                    # 3. SLEEP PHASE
-                    # Only sleep if session is HEALTHY
-                    if session.health != SessionHealth.POISONED:
-                        sleep_time = self.get_sleep_interval()
-                        worker_logger.info(f"💤 Sleeping {sleep_time:.1f}s...")
-                        time.sleep(sleep_time)
-                    else:
-                        worker_logger.info("⏩ Skipping sleep due to POISONED session.")
-                    
-                    # 4. MAINTENANCE PHASE (GARBAGE COLLECTION)
-                    
-                    # DYNAMIC SESSION AGE: 
-                    # During Golden Hour (Attack), we allow session to live longer (up to 45 mins)
-                    # to support "Persistent Session" strategy.
-                    current_max_age = 2700 if self.is_attack_time() else Config.SESSION_MAX_AGE
-                    
-                    if session.age() > current_max_age or getattr(session, 'consecutive_network_failures', 0) >= 2 or session.health == SessionHealth.POISONED:
-                        if session.health == SessionHealth.POISONED:
-                             reason = "POISONED/GATE"
-                        else:
-                             reason = "Age" if session.age() > current_max_age else "Network Instability"
-                        
-                        worker_logger.info(f"♻️ Session Reset triggered ({reason}) - Recreating Context...")
-                        
-                        # STRICT CLEANUP BEFORE REBIRTH
-                        try: 
-                            page.close()
-                            context.close()
-                        except: pass
-                        
-                        # FRESH CONTEXT
-                        context, page, session = self.create_context(browser, worker_id, proxy)
-                        session.role = SessionRole.SCOUT
-                        
-                except Exception as cycle_error:
-                    worker_logger.error(f"⚠️ Cycle error: {cycle_error}")
-                    # Force reset on error to prevent zombie state
-                    try:
-                        page.close()
-                        context.close()
-                    except: pass
-                    context, page, session = self.create_context(browser, worker_id, proxy)
-                    session.role = SessionRole.SCOUT
+
 
         except Exception as e:
             worker_logger.error(f"❌ Critical Session Error: {e}", exc_info=True)
