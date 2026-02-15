@@ -2151,79 +2151,44 @@ class EliteSniperV2:
                     time.sleep(1)
                     continue
 
-                # 2. SOLVE CAPTCHA (Or use pre-solved code)
-                code = None
+            # [TURBO PROTOCOL]
+            # Replaced standard logic with Turbo Injection
+            worker_logger.info("🚀 ENGAGING TURBO INJECTION PROTOCOL")
+            
+            start_time = time.time()
+            submitted = self.solver.solve_booking_captcha_turbo(page, "TURBO_BOOKING")
+            
+            if submitted:
+                worker_logger.info(f"⚡ Turbo Sequence Executed in {time.time() - start_time:.2f}s. Waiting for result...")
                 
-                # Attempt 1 Optimization: Use initial_code if available
-                if attempt == 1 and initial_code:
-                    worker_logger.info(f"⚡ [SPEED] Using pre-filled captcha code: '{initial_code}'")
-                    code = initial_code
-                else:
-                    # Standard behavior: Solve from scratch
-                    # Also applies if initial_code failed (Attempt > 1)
-                    success, code, status = self.solver.solve_from_page(page, f"SUBMIT_{attempt}")
-                    
-                    # [CRITICAL FIX] ABORT ON BLACK CAPTCHA
-                    # If we detect a black captcha, it means we are IP banned.
-                    # Retrying will only prolong the ban. We must DIE immediately.
-                    if status == "BLACK_IMAGE" or status == "POISONED":
-                         worker_logger.critical(f"💀 [BLACK CAPTCHA] Session POISONED on attempt {attempt} - ABORTING!")
-                         session.health = SessionHealth.POISONED
-                         return False
-
-                    if not success or not code:
-                        worker_logger.warning("🔄 Captcha solve failed, refreshing...")
-                        self._refresh_captcha(page)
-                        continue
-
-                # 3. INTERACT (Human Timing)
-                worker_logger.info(f"⌨️ Attempt {attempt}: Entering code '{code}'...")
-                captcha_input.click()
-                captcha_input.fill("")
-                time.sleep(random.uniform(0.1, 0.3)) # Micro-delay
-                captcha_input.type(code, delay=50)   # Human typing
-                time.sleep(random.uniform(0.3, 0.7)) # Hesitation before submit
-
-                # 4. SUBMIT WITH NAVIGATION WAIT
-                # This is the Anti-Race Condition Logic
-                worker_logger.info("⚡ Submitting and WAITING for response...")
-                
+                # Wait for navigation result
                 try:
-                    # We expect either a navigation (success/redirect) or a reload (failure)
-                    # We trigger the submit and wait for the action to resolve
-                    with page.expect_navigation(timeout=15000):
-                        page.keyboard.press("Enter")
-                except Exception as e:
-                    worker_logger.debug(f"Navigation wait timeout/error: {e}")
-                    # If timeout, page might have updated in-place via AJAX
+                    # We expect navigation or error
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                except:
+                    pass
                 
-                # 5. VALIDATE STATE
-                time.sleep(1) # Settling time
-                
-                # Case A: Success
+                # Validate State
                 if self._check_success(page, worker_logger):
                     return True
-                
-                # Case B: Soft Fail (Wrong Captcha) - Back on form
-                if page.locator("input[name='lastname']").count() > 0:
-                    worker_logger.warning(f"❌ Rejected (Soft) - Back on form. Retrying...")
-                    self._refresh_captcha(page)
                     
-                    # Ensure fields are still filled (sometimes they clear)
-                    if page.locator("input[name='lastname']").input_value() == "":
-                         worker_logger.info("📝 Re-filling cleared fields...")
-                         self._fill_booking_form(page, session, worker_logger)
-                    continue
-                    
-                # Case C: Hard Fail (Session Error)
+                # Check for failure
                 content = page.content().lower()
+                if "appointment number" in content or "termin nummer" in content:
+                     return True
+                
                 if "ref-id" in content or "beginnen sie" in content:
                     worker_logger.error("💀 Hard Failure: Session invalid.")
                     return False
-
-            except Exception as e:
-                worker_logger.error(f"⚠️ Submit exception: {e}")
-                time.sleep(1)
+                    
+                # If we are here, we might be back on the form (soft fail)
+                if page.locator("input[name='lastname']").count() > 0:
+                     worker_logger.warning("❌ Rejected (Soft) - Retrying Turbo...")
+                     continue
+            
+            else:
+                worker_logger.error("❌ Turbo Protocol Failed (Max Retries)")
+                return False
         
         return False
 
