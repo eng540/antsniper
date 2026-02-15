@@ -116,7 +116,7 @@ class Config:
     MAX_EVIDENCE_AGE_HOURS = 48  # Auto-cleanup after 48 hours
 
     # ==================== Development ====================
-    DRY_RUN = True # FORCE TRUE FOR TESTING
+    DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
     
     # ==================== Execution Mode ====================
     # AUTO, MANUAL, HYBRID
