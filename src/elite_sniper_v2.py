@@ -2217,11 +2217,12 @@ class EliteSniperV2:
         Bypasses click delays and UI rendering.
         """
         try:
-            self.elite_logger.info(f"💉 INJECTING: window.location = '{url}'")
+            # FIX: Use global 'logger' instead of undefined 'self.elite_logger'
+            logger.info(f"💉 INJECTING: window.location = '{url}'")
             page.evaluate(f"window.location.href = '{url}';")
             return True
         except Exception as e:
-            self.elite_logger.error(f"❌ Injection failed: {e}")
+            logger.error(f"❌ Injection failed: {e}")
             return False
 
     def _persistent_session_loop(self, page: Page, session: SessionState, worker_logger):
