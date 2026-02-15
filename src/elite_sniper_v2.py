@@ -2314,7 +2314,23 @@ class EliteSniperV2:
                              self.solver.submit_captcha(page)
                              try:
                                  page.wait_for_load_state("networkidle", timeout=10000)
-                             except:
+                                 
+                                 # [CRITICAL FIX] RE-SCAN IMMEDIATELY AFTER SOLVING!
+                                 # Don't rotate away! check if we opened the door to slots.
+                                 worker_logger.info("👀 Re-scanning after Gate Solution...")
+                                 
+                                 for selector in slot_selectors:
+                                     elements = page.locator(selector).all()
+                                     if elements:
+                                         worker_logger.critical(f"💎 SLOTS DETECTED (Post-Gate)! EXECUTING INJECTION!")
+                                         target_element = elements[0]
+                                         href = target_element.get_attribute("href")
+                                         full_url = href if href.startswith("http") else f"https://service2.diplo.de{href}"
+                                         self._inject_booking_script(page, full_url)
+                                         result = self._handle_fast_booking(page, session, worker_logger)
+                                         if result: return True
+                                         else: break # Break inner loop to continue patrol
+                              except:
                                  pass
                     
                     # E. Heartbeat / Standby
