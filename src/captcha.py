@@ -1241,6 +1241,77 @@ class EnhancedCaptchaSolver:
         logger.error(f"[{location}] All {max_attempts} attempts failed")
         return False, None, "MAX_ATTEMPTS_REACHED"
 
+    def solve_booking_captcha_turbo(self, page: Page, location: str = "BOOKING_TURBO") -> bool:
+        """
+        [TURBO INJECTION PROTOCOL]
+        Strict Logic:
+        1. Solve local OCR.
+        2. If len != 6 -> Immediate JS Refresh. NO SUBMIT.
+        3. If len == 6 -> Immediate JS Inject & JS Click Submit. NO WAITING.
+        """
+        max_retries = 15 # High retry count for speed
+        
+        # Selectors (Hardcoded for speed/reliability as requested)
+        INPUT_ID = "appointment_newAppointmentForm_captchaText"
+        REFRESH_ID = "appointment_newAppointmentForm_form_newappointment_refreshcaptcha"
+        SUBMIT_ID = "appointment_newAppointmentForm_appointment_addAppointment"
+        
+        for attempt in range(max_retries):
+            # 1. Get Image & Solve
+            try:
+                # Find current captcha image (assuming standard selector or base64)
+                # Using a generic strategy that works for the booking page structure
+                element = page.query_selector("captcha > div")
+                if not element:
+                    logger.warning(f"[{location}] Captcha element not found, retrying...")
+                    time.sleep(0.1)
+                    continue
+
+                style = element.get_attribute("style")
+                if not style or "base64" not in style:
+                    logger.warning(f"[{location}] No base64 image found")
+                    time.sleep(0.1)
+                    continue
+                
+                # Extract Base64
+                import re
+                match = re.search(r'base64,([^"]+)', style)
+                if not match:
+                    continue
+                    
+                import base64
+                image_bytes = base64.b64decode(match.group(1))
+                
+                # Solve Local
+                result = self.ocr.classification(image_bytes)
+                result = self._clean_ocr_result(result)
+                
+                # 2. Strict Validation (The Filter)
+                if len(result) != 6:
+                    logger.warning(f"[{location}] Invalid Length ({len(result)}) -> '{result}'. REFRESHING.")
+                    # Immediate JS Click on Refresh
+                    page.evaluate(f"document.getElementById('{REFRESH_ID}').click()")
+                    # Short sleep for image update (network dependent, but keeping it tight)
+                    time.sleep(0.5) 
+                    continue
+                
+                # 3. Turbo Injection & Strike
+                logger.critical(f"[{location}] ✅ Valid ({len(result)}) -> '{result}'. INJECTING & STRIKING.")
+                
+                # Execute Injection and Submit in one Go context for max speed
+                page.evaluate(f"""
+                    document.getElementById('{INPUT_ID}').value = '{result}';
+                    document.getElementById('{SUBMIT_ID}').click();
+                """)
+                
+                return True # Executed successfully
+                
+            except Exception as e:
+                logger.error(f"[{location}] Error in turbo loop: {e}")
+                time.sleep(0.5)
+        
+        return False
+
 
 # Backward compatibility
 class CaptchaSolver:
