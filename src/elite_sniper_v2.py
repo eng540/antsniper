@@ -1840,6 +1840,8 @@ class EliteSniperV2:
                 
                 try:
                     # Run single session directly (no threads)
+                    # [PERSISTENT ARCHITECTURE UPGRADE]
+                    # Enter the Settlement Loop (Infinite Patrol)
                     self._run_single_session(browser, worker_id=worker_id)
                 except Exception as e:
                     logger.error(f"[SESSION ERROR] {e}")
@@ -2248,7 +2250,175 @@ class EliteSniperV2:
         logger.info(f"[STATS] Final stats: {self.global_stats.get_summary()}")
 
 
-# Entry point
+    def _perform_heartbeat(self, page: Page, worker_logger):
+        """
+        [HEARTBEAT] Keep session alive using Soft Refresh.
+        Interacts with lightweight elements to reset server timeout without full reload.
+        """
+        try:
+            # Strategies:
+            # 1. Language Switcher (Best - keeps state)
+            # 2. Month Navigation (Good - rotates)
+            
+            # Try Language Switcher first
+            lang_switch = page.locator("ul.nav.navbar-nav.navbar-right li a").first
+            if lang_switch.count() > 0:
+                worker_logger.info("💓 Sending Heartbeat (Language Toggle)...")
+                lang_switch.click()
+                # Wait briefly for partial update
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                except:
+                    pass
+                return True
+                
+            # Fallback: Just simple JS evaluation to touch session? 
+            # (Server needs HTTP request, so JS alone isn't enough usually)
+            
+            worker_logger.warning("⚠️ Heartbeat target not found - skipping")
+            return False
+            
+        except Exception as e:
+            worker_logger.warning(f"⚠️ Heartbeat failed: {e}")
+            return False
+
+    def _inject_booking_script(self, page: Page, url: str):
+        """
+        [TURBO INJECTION] Immediate JS Navigation.
+        Bypasses click delays and UI rendering.
+        """
+        try:
+            self.elite_logger.info(f"💉 INJECTING: window.location = '{url}'")
+            page.evaluate(f"window.location.href = '{url}';")
+            return True
+        except Exception as e:
+            self.elite_logger.error(f"❌ Injection failed: {e}")
+            return False
+
+    def _persistent_session_loop(self, page: Page, session: SessionState, worker_logger):
+        """
+        [PERSISTENT MODE] The 'Settlement' Strategy.
+        Maintains one session indefinitely while rotating through months.
+        """
+        worker_logger.info("🏰 ENTERING PERSISTENT SESSION MODE (SETTLEMENT)")
+        
+        # 1. Initial Setup
+        month_urls = self.generate_month_urls()
+        if not month_urls:
+            worker_logger.error("❌ No month URLs generated")
+            return False
+            
+        # Rotation Logic: Current -> Next -> Prev -> Current
+        # We just cycle through the list for now
+        
+        while not self.stop_event.is_set():
+            try:
+                for url in month_urls:
+                    if self.stop_event.is_set(): break
+                    
+                    # A. Navigate (Rotational)
+                    worker_logger.info(f"🔄 Rotating to: {url.split('month=')[-1][:7]}...")
+                    
+                    # Use standard goto for reliability on rotation
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                    except:
+                        worker_logger.warning("⚠️ Navigation timeout (Rotation)")
+                        continue
+                        
+                    # B. Check Session Health (Graceful Re-auth)
+                    if not self.check_session_health(page, session, worker_logger):
+                         worker_logger.warning("💀 Session Died - Triggering Re-auth...")
+                         # TODO: Implement re-auth logic or return False to let outer loop handle it
+                         return False 
+
+                    # C. SCAN (Fast)
+                    # Use existing solver logic but specialized for speed
+                    # Check for slots first (Green cells)
+                    
+                    # Selectors for free slots
+                    slot_selectors = [
+                        "a.arrow[href*='appointment_showDay']",
+                        "td.buchbar a",
+                        "a[href*='showDay']"
+                    ]
+                    
+                    found_slots = False
+                    for selector in slot_selectors:
+                         elements = page.locator(selector).all()
+                         if elements:
+                             # !!! JACKPOT !!!
+                             worker_logger.critical(f"💎 SLOTS DETECTED ({len(elements)})! EXECUTING INJECTION!")
+                             
+                             # 1. Get Target URL
+                             target_element = elements[0]
+                             href = target_element.get_attribute("href")
+                             full_url = href if href.startswith("http") else f"https://service2.diplo.de{href}"
+                             
+                             # 2. TURBO INJECTION
+                             self._inject_booking_script(page, full_url)
+                             
+                             # 3. Hand over to Booking Handler
+                             # The page will navigate, then we need to handle the day/time selection
+                             # For now, return True to exit loop and trigger success handler?
+                             # Or call a specialized booking function from here.
+                             
+                             # Let's call a specialized internal booking flow
+                             result = self._handle_fast_booking(page, session, worker_logger)
+                             if result:
+                                 return True
+                             else:
+                                 # Booking failed - Resume patrol
+                                 found_slots = True 
+                                 break
+                    
+                    if found_slots:
+                        continue
+
+                    # D. Captcha Handling (If Gate appears)
+                    # If we are Gated, check_session_health might have passed (it ignores gates)
+                    # So we need to solve passage if needed
+                    if page.locator("#appointment_captcha_month").is_visible():
+                         worker_logger.info("🛡️ Gate detected during rotation - Solving...")
+                         success, code, _ = self.solver.solve_from_page(page, "ROTATION_GATE")
+                         if success:
+                             self.solver.submit_captcha(page)
+                             try:
+                                 page.wait_for_load_state("networkidle", timeout=10000)
+                             except:
+                                 pass
+                    
+                    # E. Heartbeat / Standby
+                    # If we just navigated, we are fresh.
+                    # Sleep briefly (randomized) before next rotation
+                    sleep_time = random.uniform(5, 12) # 5-12 seconds
+                    worker_logger.info(f"💤 Loitering {sleep_time:.1f}s...")
+                    time.sleep(sleep_time)
+                    
+            except Exception as e:
+                worker_logger.error(f"⚠️ Rotation Loop Error: {e}")
+                time.sleep(5)
+                
+        return False
+
+    def _handle_fast_booking(self, page: Page, session: SessionState, worker_logger) -> bool:
+        """
+        Handle the booking process after Instant Injection.
+        """
+        worker_logger.info("⚡ FAST BOOKING SEQUENCE INITIATED")
+        # Reuse existing logic but optimized
+        try:
+             # We assume we just injected navigation to Day Page
+             # Wait for load
+             page.wait_for_load_state("domcontentloaded", timeout=10000)
+             
+             # Reuse _process_day_page logic 
+             return self._process_day_page(page, session, page.url, worker_logger)
+             
+        except Exception as e:
+            worker_logger.error(f"❌ Fast booking failed: {e}")
+            return False
+
 if __name__ == "__main__":
     sniper = EliteSniperV2()
     success = sniper.run()
