@@ -2330,7 +2330,7 @@ class EliteSniperV2:
                                          result = self._handle_fast_booking(page, session, worker_logger)
                                          if result: return True
                                          else: break # Break inner loop to continue patrol
-                              except:
+                             except:
                                  pass
                     
                     # E. Heartbeat / Standby
