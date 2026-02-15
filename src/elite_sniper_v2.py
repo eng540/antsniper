@@ -1826,7 +1826,7 @@ class EliteSniperV2:
                 browser = p.chromium.launch(
                     headless=Config.HEADLESS,
                     args=Config.BROWSER_ARGS,
-                    timeout=60000
+                    timeout=90000
                 )
                 
                 logger.info("[BROWSER] Launched successfully")

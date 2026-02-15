@@ -1115,14 +1115,15 @@ class EnhancedCaptchaSolver:
         try:
             # FACT-BASED SELECTORS from RK-Termin form.html
             reload_selectors = [
-                # 1. The exact ID from the booking form (RK-Termin form.html)
+                # 1. The exact ID from the booking form
                 "#appointment_newAppointmentForm_form_newappointment_refreshcaptcha",
-                # 2. The name attribute from the booking form
+                # 2. The name attribute (exact and partial for robustness)
                 "input[name='action:appointment_refreshCaptcha']",
-                # 3. The exact ID from the category form (RK-Termin - Kategorie.html)
+                "input[name*='refreshCaptcha']",
+                # 3. Category/Month form selectors
                 "#appointment_captcha_month_refreshcaptcha",
                 "input[name='action:appointment_refreshCaptchamonth']",
-                # 4. Fallbacks based on value (confirmed "Load another picture")
+                # 4. Fallbacks based on value
                 "input[value='Load another picture']",
                 "input[value='Bild laden']"
             ]
@@ -1130,7 +1131,7 @@ class EnhancedCaptchaSolver:
             for selector in reload_selectors:
                 try:
                     button = page.locator(selector).first
-                    if button.is_visible(timeout=1000):
+                    if button.is_visible(timeout=3000):  # Increased from 1000 to 3000
                         # Try regular click first
                         try:
                             button.click(timeout=2000)

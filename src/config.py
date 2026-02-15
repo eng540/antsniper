@@ -108,7 +108,8 @@ class Config:
         "--disable-dev-shm-usage",
         "--disable-gpu",
         "--no-first-run",
-        "--disable-extensions"
+        "--disable-extensions",
+        "--window-size=1920,1080"
     ]
     
     # ==================== Evidence Configuration ====================
