@@ -1906,7 +1906,11 @@ class EliteSniperV2:
                         session.mark_captcha_solved()
                         self.global_stats.captchas_solved += 1
                         self.solver.submit_captcha(page)
-                        time.sleep(1)
+                        # [CRITICAL FIX] Wait for page load after submit
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=15000)
+                        except:
+                            pass
                     
                     # Check for available days
                     day_selectors = [
@@ -1931,6 +1935,9 @@ class EliteSniperV2:
                                 
                                 time.sleep(2)  # Give attackers time to react
                                 break
+                            else:
+                                # [UX IMPROVEMENT] Explicity log empty results
+                                worker_logger.info(f"⚪ No slots found with selector '{selector}'")
                         except:
                             continue
                     
