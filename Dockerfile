@@ -1,8 +1,8 @@
 #--- START OF FULL, FINAL, AND CONFIRMED READY-TO-USE FILE: Dockerfile ---
 # ================================
-# Base Image
+# Base Image: Official Playwright (Includes Python + Browsers)
 # ================================
-FROM python:3.11-slim
+FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 
 # ================================
 # Environment
@@ -10,31 +10,17 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV TZ=Asia/Aden
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ================================
-# System Dependencies
+# System Dependencies (Minimal extras needed)
 # ================================
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
-    gnupg \
-    ca-certificates \
-    fonts-liberation \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpangocairo-1.0-0 \
-    libgtk-3-0 \
+    vim \
     tzdata \
     procps \
     libgl1 \
-    libglib2.0-0 \
-    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # ================================
@@ -48,16 +34,16 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 WORKDIR /app
 
 # ================================
-# Python Dependencies (Cached Layer)
+# Python Dependencies
 # ================================
+# Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# ================================
-# Install Playwright
-# ================================
-RUN playwright install chromium --with-deps
+# Copy requirements
+COPY requirements.txt .
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ================================
 # Copy Application
