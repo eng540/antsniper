@@ -1419,44 +1419,16 @@ class EliteSniperV2:
         worker_logger.info(f"[START] Robust Single Session Mode")
         
         try:
-            max_cycles = 1000  # Persistent runner
+            # [PERSISTENT ARCHITECTURE UPGRADE]
+            # Enter the Settlement Loop (Infinite Patrol)
+            success = self._persistent_session_loop(page, session, worker_logger)
             
-            for cycle in range(max_cycles):
-                if self.stop_event.is_set(): break
-                
-                # PAUSE CHECK (C2)
-                if self.paused.is_set():
-                    worker_logger.info("⏸️ Session PAUSED by C2")
-                    while self.paused.is_set() and not self.stop_event.is_set():
-                        time.sleep(1)
-                    worker_logger.info("▶️ Session RESUMED")
-                
-                worker_logger.info(f"🔄 [CYCLE {cycle+1}] Scanning...")
-                
-                try:
-                    # 1. GENERATE TARGETS
-                    month_urls = self.generate_month_urls()
-                    
-                    # 2. SCAN PHASE
-                    for url in month_urls:
-                        if self.stop_event.is_set(): break
-                        
-                        # Process Month (Returns True if slot found and booked specific to this flow)
-                        if self._process_month_page(page, session, url, worker_logger):
-                            return  # SUCCESS or CRITICAL STOP
-                        
-                        # Circuit Breaker: Fail Fast on Network Issues
-                        if getattr(session, 'consecutive_network_failures', 0) >= 2:
-                             worker_logger.warning("⚡ Circuit Breaker Triggered: Network Unstable. Resetting session...")
-                             break
-                        
-                        # POISON CHECK: If session died (Gate Detected), reset IMMEDIATELY (Don't sleep!)
-                        if session.health == SessionHealth.POISONED:
-                             worker_logger.warning("☠️ Session POISONED (Gate Detected). Triggering IMMEDIATE Rebirth!")
-                             break 
-
-                        # Small delay between months
-                        time.sleep(random.uniform(1, 2))
+            if success:
+                 worker_logger.info("🏆 Session completed with SUCCESS")
+                 return True
+            else:
+                 worker_logger.info("⏹️ Session ended without success")
+                 return False
                     
                     # 3. SLEEP PHASE
                     # Only sleep if session is HEALTHY
