@@ -2228,123 +2228,160 @@ class EliteSniperV2:
     def _persistent_session_loop(self, page: Page, session: SessionState, worker_logger):
         """
         [PERSISTENT MODE] The 'Settlement' Strategy.
-        Maintains one session indefinitely while rotating through months.
+        Maintains one session indefinitely using DOM-based navigation.
+        
+        ARCHITECTURE:
+        - Stays on calendar page (closed loop)
+        - Navigates via DOM clicks (preserves session)
+        - Immediate interrupt on slot detection (no delays)
         """
         worker_logger.info("🏰 ENTERING PERSISTENT SESSION MODE (SETTLEMENT)")
         
-        # 1. Initial Setup
+        # Initial navigation to first month
         month_urls = self.generate_month_urls()
         if not month_urls:
             worker_logger.error("❌ No month URLs generated")
             return False
-            
-        # Rotation Logic: Current -> Next -> Prev -> Current
-        # We just cycle through the list for now
+        
+        # Navigate to first month to establish baseline
+        try:
+            page.goto(month_urls[0], wait_until="domcontentloaded", timeout=20000)
+        except Exception as e:
+            worker_logger.error(f"❌ Initial navigation failed: {e}")
+            return False
+        
+        # Slot detection selectors
+        slot_selectors = [
+            "a.arrow[href*='appointment_showDay']",
+            "td.buchbar a",
+            "a[href*='showDay']"
+        ]
+        
+        # Month navigation patterns (common selectors on appointment sites)
+        next_month_selectors = [
+            "a.nat-nav-btn:has-text('»')",  # Next month arrow
+            "a[title*='next' i]",
+            "a[title*='weiter' i]",
+            "button:has-text('›')",
+            ".ui-datepicker-next"
+        ]
+        
+        prev_month_selectors = [
+            "a.nat-nav-btn:has-text('«')",  # Previous month arrow
+            "a[title*='previous' i]",
+            "a[title*='zurück' i]",
+            "button:has-text('‹')",
+            ".ui-datepicker-prev"
+        ]
+        
+        current_direction = "forward"  # Track navigation direction
+        
+        worker_logger.info("🔁 Starting closed-loop navigation (DOM-based)")
         
         while not self.stop_event.is_set():
             try:
-                for url in month_urls:
-                    if self.stop_event.is_set(): break
-                    
-                    # A. Navigate (Rotational)
-                    worker_logger.info(f"🔄 Rotating to: {url.split('month=')[-1][:7]}...")
-                    
-                    # Use standard goto for reliability on rotation
-                    try:
-                        page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                    except:
-                        worker_logger.warning("⚠️ Navigation timeout (Rotation)")
-                        continue
-                        
-                    # B. Check Session Health (Graceful Re-auth)
-                    if not self.check_session_health(page, session, worker_logger):
-                         worker_logger.warning("💀 Session Died - Triggering Re-auth...")
-                         # TODO: Implement re-auth logic or return False to let outer loop handle it
-                         return False 
-
-                    # C. SCAN (Fast)
-                    # Use existing solver logic but specialized for speed
-                    # Check for slots first (Green cells)
-                    
-                    # Selectors for free slots
-                    slot_selectors = [
-                        "a.arrow[href*='appointment_showDay']",
-                        "td.buchbar a",
-                        "a[href*='showDay']"
-                    ]
-                    
-                    found_slots = False
-                    for selector in slot_selectors:
-                         elements = page.locator(selector).all()
-                         if elements:
-                             # !!! JACKPOT !!!
-                             worker_logger.critical(f"💎 SLOTS DETECTED ({len(elements)})! EXECUTING INJECTION!")
-                             
-                             # 1. Get Target URL
-                             target_element = elements[0]
-                             href = target_element.get_attribute("href")
-                             full_url = href if href.startswith("http") else f"https://service2.diplo.de{href}"
-                             
-                             # 2. TURBO INJECTION
-                             self._inject_booking_script(page, full_url)
-                             
-                             # 3. Hand over to Booking Handler
-                             # The page will navigate, then we need to handle the day/time selection
-                             # For now, return True to exit loop and trigger success handler?
-                             # Or call a specialized booking function from here.
-                             
-                             # Let's call a specialized internal booking flow
-                             result = self._handle_fast_booking(page, session, worker_logger)
-                             if result:
-                                 return True
-                             else:
-                                 # Booking failed - Resume patrol
-                                 found_slots = True 
-                                 break
-                    
-                    if found_slots:
-                        continue
-
-                    # D. Captcha Handling (If Gate appears)
-                    # If we are Gated, check_session_health might have passed (it ignores gates)
-                    # So we need to solve passage if needed
-                    if page.locator("#appointment_captcha_month").is_visible():
-                         worker_logger.info("🛡️ Gate detected during rotation - Solving...")
-                         success, code, _ = self.solver.solve_from_page(page, "ROTATION_GATE")
-                         if success:
-                             self.solver.submit_captcha(page)
-                             try:
-                                 page.wait_for_load_state("networkidle", timeout=10000)
-                                 
-                                 # [CRITICAL FIX] RE-SCAN IMMEDIATELY AFTER SOLVING!
-                                 # Don't rotate away! check if we opened the door to slots.
-                                 worker_logger.info("👀 Re-scanning after Gate Solution...")
-                                 
-                                 for selector in slot_selectors:
-                                     elements = page.locator(selector).all()
-                                     if elements:
-                                         worker_logger.critical(f"💎 SLOTS DETECTED (Post-Gate)! EXECUTING INJECTION!")
-                                         target_element = elements[0]
-                                         href = target_element.get_attribute("href")
-                                         full_url = href if href.startswith("http") else f"https://service2.diplo.de{href}"
-                                         self._inject_booking_script(page, full_url)
-                                         result = self._handle_fast_booking(page, session, worker_logger)
-                                         if result: return True
-                                         else: break # Break inner loop to continue patrol
-                             except:
-                                 pass
-                    
-                    # E. Heartbeat / Standby
-                    # If we just navigated, we are fresh.
-                    # Sleep briefly (randomized) before next rotation
-                    sleep_time = random.uniform(5, 12) # 5-12 seconds
-                    worker_logger.info(f"💤 Loitering {sleep_time:.1f}s...")
-                    time.sleep(sleep_time)
-                    
-            except Exception as e:
-                worker_logger.error(f"⚠️ Rotation Loop Error: {e}")
-                time.sleep(5)
+                # === STEP 1: SOLVE GATE IF PRESENT ===
+                if page.locator("#appointment_captcha_month").is_visible():
+                    worker_logger.info("🛡️ Gate detected - Solving...")
+                    success, code, _ = self.solver.solve_from_page(page, "ROTATION_GATE")
+                    if success:
+                        self.solver.submit_captcha(page)
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=10000)
+                        except:
+                            pass
                 
+                # === STEP 2: CHECK SESSION HEALTH ===
+                if not self.check_session_health(page, session, worker_logger):
+                    worker_logger.warning("💀 Session Died - Exiting for restart...")
+                    return False
+                
+                # === STEP 3: SCAN FOR SLOTS (PRIORITY INTERRUPT) ===
+                for selector in slot_selectors:
+                    elements = page.locator(selector).all()
+                    if elements:
+                        # !!! IMMEDIATE INTERRUPT - NO CONTINUATION !!!
+                        worker_logger.critical(f"💎 SLOTS DETECTED ({len(elements)})! IMMEDIATE BOOKING!")
+                        
+                        target_element = elements[0]
+                        href = target_element.get_attribute("href")
+                        full_url = href if href.startswith("http") else f"https://service2.diplo.de{href}"
+                        
+                        # Execute booking immediately
+                        self._inject_booking_script(page, full_url)
+                        result = self._handle_fast_booking(page, session, worker_logger)
+                        
+                        # Return immediately regardless of result
+                        if result:
+                            return True  # Success!
+                        else:
+                            # Booking failed, but don't continue loop - return to restart
+                            worker_logger.warning("⚠️ Booking attempt failed - restarting patrol")
+                            return False
+                
+                # === STEP 4: DOM-BASED NAVIGATION (Session Preservation) ===
+                navigated = False
+                
+                if current_direction == "forward":
+                    # Try to click "next month" button
+                    for selector in next_month_selectors:
+                        try:
+                            btn = page.locator(selector).first
+                            if btn.count() > 0 and btn.is_visible():
+                                worker_logger.info(f"→ Clicking NEXT month button")
+                                btn.click()
+                                page.wait_for_load_state("domcontentloaded", timeout=5000)
+                                navigated = True
+                                break
+                        except:
+                            continue
+                    
+                    # If we navigated forward 2-3 times, reverse direction
+                    if navigated:
+                        # Simple heuristic: switch direction periodically
+                        if random.random() < 0.3:  # 30% chance to reverse
+                            current_direction = "backward"
+                            worker_logger.info("🔄 Reversing direction")
+                
+                elif current_direction == "backward":
+                    # Try to click "previous month" button
+                    for selector in prev_month_selectors:
+                        try:
+                            btn = page.locator(selector).first
+                            if btn.count() > 0 and btn.is_visible():
+                                worker_logger.info(f"← Clicking PREVIOUS month button")
+                                btn.click()
+                                page.wait_for_load_state("domcontentloaded", timeout=5000)
+                                navigated = True
+                                break
+                        except:
+                            continue
+                    
+                    if navigated:
+                        if random.random() < 0.3:
+                            current_direction = "forward"
+                            worker_logger.info("🔄 Reversing direction")
+                
+                # === FALLBACK: URL Navigation if buttons not found ===
+                if not navigated:
+                    worker_logger.warning("⚠️ DOM buttons not found - using URL fallback")
+                    # Use old method as fallback
+                    random_url = random.choice(month_urls)
+                    try:
+                        page.goto(random_url, wait_until="domcontentloaded", timeout=15000)
+                    except:
+                        worker_logger.warning("⚠️ Fallback navigation timeout")
+                
+                # === STEP 5: BRIEF PAUSE (Heartbeat) ===
+                # Only sleep if NO slots were found
+                sleep_time = random.uniform(3, 8)  # Shorter intervals
+                worker_logger.info(f"💓 Heartbeat pause: {sleep_time:.1f}s")
+                time.sleep(sleep_time)
+                
+            except Exception as e:
+                worker_logger.error(f"⚠️ Loop error: {e}")
+                time.sleep(5)
+        
         return False
 
     def _handle_fast_booking(self, page: Page, session: SessionState, worker_logger) -> bool:
