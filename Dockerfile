@@ -10,6 +10,7 @@ FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV TZ=Asia/Aden
+ENV DEBIAN_FRONTEND=noninteractive
 
 # ================================
 # System Dependencies (Minimal extras needed)
