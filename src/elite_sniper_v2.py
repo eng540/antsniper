@@ -1669,6 +1669,34 @@ class EliteSniperV2:
             return False
 
 
+    def _inject_booking_script(self, page: Page, url: str):
+        """
+        [TURBO INJECTION] Immediate JS Navigation.
+        Bypasses click delays and preserves session state.
+        
+        From Legacy Elite Sniper - PROVEN WORKING METHOD
+        This function was MISSING and is the root cause of booking failures.
+        """
+        try:
+            logger.info(f"💉 INJECTING: window.location = '{url}'")
+            page.evaluate(f"window.location.href = '{url}';")
+            time.sleep(0.5)  # Brief stability pause
+            return True
+        except Exception as e:
+            logger.error(f"❌ Injection failed: {e}")
+            return False
+    
+    def _capture_diagnostic(self, page: Page, operation: str, category: str = "general"):
+        """
+        Smart diagnostic capture - skip in ATTACK mode for speed.
+        Prevents 2-3 second overhead during critical booking window.
+        """
+        if self.get_mode() == "ATTACK":
+            logger.debug(f"⚡ Skipping diagnostic in ATTACK mode: {operation}")
+            return None
+        
+        return self.monitor.capture(page, operation, category)
+
     def _process_day_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
         """Handle Day Page: Scan Slots -> Navigate Form"""
         try:
@@ -1690,7 +1718,15 @@ class EliteSniperV2:
             if slot_href:
                 base_domain = self.base_url.split("/extern")[0]
                 form_url = f"{base_domain}/{slot_href}" if not slot_href.startswith("http") else slot_href
-                return self._process_booking_form(page, session, form_url, logger)
+                
+                # TURBO INJECT (Legacy proven method) - CRITICAL FIX!
+                logger.critical(f"💉 INJECTING BOOKING URL: {form_url[:60]}...")
+                if self._inject_booking_script(page, form_url):
+                    time.sleep(1)  # Let page stabilize
+                    return self._process_booking_form(page, session, form_url, logger)
+                else:
+                    logger.error("❌ Injection failed - aborting")
+                    return False
                 
             return False
             
@@ -1702,7 +1738,13 @@ class EliteSniperV2:
         """Handle Booking: Fill -> Captcha -> Smart Submit"""
         try:
             logger.info("📝 Entering Booking Phase...")
-            page.goto(url, timeout=20000, wait_until="domcontentloaded")
+            # URL already navigated via _inject_booking_script - just verify we're on form
+            try:
+                page.wait_for_selector("input[name='lastname']", timeout=5000)
+                logger.info("✅ Form loaded successfully after injection")
+            except:
+                logger.warning("⚠️ Form not loaded after injection - forcing navigation")
+                page.goto(url, timeout=20000, wait_until="domcontentloaded")
             
             # 1. FAST FILL (Humanized)
             if not self._fill_booking_form(page, session, logger):
