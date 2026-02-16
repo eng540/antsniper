@@ -2339,18 +2339,11 @@ class EliteSniperV2:
             "a[href*='showDay']"
         ]
         
-        # Month navigation patterns (ACTUAL SITE STRUCTURE - XPATH FOR COMPATIBILITY)
-        # HTML: <a href="...dateStr=XX.XX.XXXX"><img src="images/go-next.gif"></a>
-        # Fixed: Using flexible matching without .gif extension to support variants
-        next_month_selectors = [
-            "xpath=//a[img[contains(@src, 'go-next')]]",  # XPath: <a> containing <img> with 'go-next'
-            "img[src*='go-next']"                          # Fallback: find img then navigate to parent
-        ]
-        
-        prev_month_selectors = [
-            "xpath=//a[img[contains(@src, 'go-previous')]]",  # XPath: <a> containing <img> with 'go-previous'
-            "img[src*='go-previous']"                          # Fallback: find img then navigate to parent
-        ]
+        # Month navigation patterns (BASED ON USER'S ACTUAL HTML)
+        # Structure: <a onclick="return startCommitRequest();" href="extern/appointment_showMonth.do?...dateStr=17.03.2026"><img src="images/go-next.gif"></a>
+        # FIX: Images are blocked by resource handler, so use href pattern instead
+        # NOTE: Same selector for both - we distinguish by position (index 0=prev, index 1=next)
+        navigation_selector = "a[onclick*='startCommitRequest'][href*='appointment_showMonth']" 
         
         current_direction = "forward"  # Track navigation direction
         
@@ -2426,30 +2419,20 @@ class EliteSniperV2:
                 navigated = False
                 
                 if current_direction == "forward":
-                    # Try to click "next month" button
-                    for selector in next_month_selectors:
-                        try:
-                            if selector.startswith("xpath="):
-                                # XPath selector - already selects <a> element
-                                btn = page.locator(selector).first
-                            else:
-                                # CSS selector for <img> - need to get parent <a>
-                                img = page.locator(selector).first
-                                if img.count() > 0:
-                                    # Navigate to parent <a> element
-                                    btn = img.locator("xpath=..")
-                                else:
-                                    continue
-                            
-                            if btn.count() > 0 and btn.is_visible():
-                                worker_logger.info(f"→ Clicking NEXT month button")
-                                btn.click()
-                                page.wait_for_load_state("domcontentloaded", timeout=5000)
-                                navigated = True
-                                break
-                        except Exception as e:
-                            worker_logger.debug(f"Selector {selector} failed: {e}")
-                            continue
+                    # Try to click "next month" button (SECOND navigation link)
+                    try:
+                        links = page.locator(navigation_selector).all()
+                        if len(links) >= 2:
+                            # Second link is "next month" (first is "previous month")
+                            btn = links[1]
+                            worker_logger.info(f"→ Clicking NEXT month button")
+                            btn.click()
+                            page.wait_for_load_state("domcontentloaded", timeout=5000)
+                            navigated = True
+                        else:
+                            worker_logger.debug(f"Navigation links found: {len(links)} (need 2+)")
+                    except Exception as e:
+                        worker_logger.debug(f"Forward navigation failed: {e}")
                     
                     # If we navigated forward 2-3 times, reverse direction
                     if navigated:
@@ -2459,30 +2442,20 @@ class EliteSniperV2:
                             worker_logger.info("🔄 Reversing direction")
                 
                 elif current_direction == "backward":
-                    # Try to click "previous month" button
-                    for selector in prev_month_selectors:
-                        try:
-                            if selector.startswith("xpath="):
-                                # XPath selector - already selects <a> element
-                                btn = page.locator(selector).first
-                            else:
-                                # CSS selector for <img> - need to get parent <a>
-                                img = page.locator(selector).first
-                                if img.count() > 0:
-                                    # Navigate to parent <a> element
-                                    btn = img.locator("xpath=..")
-                                else:
-                                    continue
-                            
-                            if btn.count() > 0 and btn.is_visible():
-                                worker_logger.info(f"← Clicking PREVIOUS month button")
-                                btn.click()
-                                page.wait_for_load_state("domcontentloaded", timeout=5000)
-                                navigated = True
-                                break
-                        except Exception as e:
-                            worker_logger.debug(f"Selector {selector} failed: {e}")
-                            continue
+                    # Try to click "previous month" button (FIRST navigation link)
+                    try:
+                        links = page.locator(navigation_selector).all()
+                        if len(links) >= 2:
+                            # First link is "previous month"
+                            btn = links[0]
+                            worker_logger.info(f"← Clicking PREVIOUS month button")
+                            btn.click()
+                            page.wait_for_load_state("domcontentloaded", timeout=5000)
+                            navigated = True
+                        else:
+                            worker_logger.debug(f"Navigation links found: {len(links)} (need 2+)")
+                    except Exception as e:
+                        worker_logger.debug(f"Backward navigation failed: {e}")
                     
                     if navigated:
                         if random.random() < 0.3:
