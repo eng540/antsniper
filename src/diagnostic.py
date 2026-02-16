@@ -245,7 +245,7 @@ class OperationTracker:
 class TelegramReporter:
     """
     Enhanced Telegram reporting with screenshots and detailed status
-    Integrates with existing TelegramCaptchaHandler
+    Sends real-time updates via Telegram
     """
     
     def __init__(self, enabled: bool = True):
@@ -256,97 +256,99 @@ class TelegramReporter:
             enabled: Enable/disable Telegram reporting
         """
         self.enabled = enabled
-        self.telegram_handler = None  # Will be injected from main system
+        
+        # Import notifier functions
+        try:
+            from .notifier import send_alert, send_photo, send_status_update
+            self.send_alert = send_alert
+            self.send_photo = send_photo
+            self.send_status_update = send_status_update
+        except ImportError:
+            try:
+                from notifier import send_alert, send_photo, send_status_update
+                self.send_alert = send_alert
+                self.send_photo = send_photo
+                self.send_status_update = send_status_update
+            except ImportError:
+                logger.warning("⚠️ Notifier module not available - Telegram disabled")
+                self.enabled = False
         
         if not self.enabled:
             logger.info("📱 Telegram reporting DISABLED")
         else:
             logger.info("📱 Telegram reporting ENABLED")
     
-    def set_handler(self, handler):
-        """Inject TelegramCaptchaHandler instance"""
-        self.telegram_handler = handler
-    
     def send_message(self, message: str):
         """Send simple text message"""
-        if not self.enabled or not self.telegram_handler:
+        if not self.enabled:
             return
         
         try:
-            # TODO: Implement using telegram_handler
-            logger.debug(f"📱 Telegram: {message}")
+            self.send_alert(message)
+            logger.debug(f"📱 Telegram sent: {message[:50]}...")
         except Exception as e:
             logger.warning(f"⚠️ Telegram send failed: {e}")
     
     def send_with_image(self, message: str, image_path: str):
         """Send message with attached image"""
-        if not self.enabled or not self.telegram_handler:
+        if not self.enabled:
             return
         
         try:
-            # TODO: Implement image sending
-            logger.debug(f"📱 Telegram (with image): {message}")
+            # Use send_photo which accepts image path and caption
+            self.send_photo(image_path, caption=message)
+            logger.debug(f"📱 Telegram sent with photo: {message[:50]}...")
         except Exception as e:
             logger.warning(f"⚠️ Telegram image send failed: {e}")
     
     def report_captcha_attempt(self, code: str, screenshot_path: Optional[str], success: bool):
         """Report captcha attempt with screenshot"""
         status = "✅ Accepted" if success else "❌ Rejected"
-        message = f"""
-🔐 Captcha Attempt
+        message = f"""🔐 Captcha Attempt
 Code: {code}
 Status: {status}
-Time: {datetime.now().strftime('%H:%M:%S')}
-        """
+Time: {datetime.now().strftime('%H:%M:%S')}"""
         
-        if screenshot_path:
+        if screenshot_path and os.path.exists(screenshot_path):
             self.send_with_image(message, screenshot_path)
         else:
             self.send_message(message)
     
     def report_error(self, error_type: str, screenshot_path: Optional[str] = None):
         """Report error with context"""
-        message = f"""
-⚠️ ERROR DETECTED
+        message = f"""⚠️ ERROR DETECTED
 Type: {error_type}
-Time: {datetime.now().strftime('%H:%M:%S')}
-        """
+Time: {datetime.now().strftime('%H:%M:%S')}"""
         
-        if screenshot_path:
+        if screenshot_path and os.path.exists(screenshot_path):
             self.send_with_image(message, screenshot_path)
         else:
             self.send_message(message)
     
     def report_slot_found(self, screenshot_path: Optional[str] = None):
         """Report slot discovery - HIGH PRIORITY"""
-        message = f"""
-🎯 SLOT FOUND! 🎯
+        message = f"""🎯 SLOT FOUND! 🎯
 Time: {datetime.now().strftime('%H:%M:%S')}
-Action: Proceeding with booking...
-        """
+Action: Proceeding with booking..."""
         
-        if screenshot_path:
+        if screenshot_path and os.path.exists(screenshot_path):
             self.send_with_image(message, screenshot_path)
         else:
             self.send_message(message)
     
     def report_session_start(self):
         """Report session start"""
-        message = f"""
-🚀 Session Started
+        message = f"""🚀 Session Started
 Time: {datetime.now().strftime('%H:%M:%S')}
-Mode: Persistent Settlement
-        """
+Mode: Persistent Settlement"""
         self.send_message(message)
     
     def report_session_stats(self, stats: Dict[str, Any]):
         """Report session statistics"""
-        message = f"""
-📊 Session Statistics
+        message = f"""📊 Session Statistics
 Total Operations: {stats.get('total_operations', 0)}
 Successful: {stats.get('successful', 0)}
 Failed: {stats.get('failed', 0)}
 Success Rate: {stats.get('success_rate', 0):.1%}
-Avg Duration: {stats.get('avg_duration', 0):.2f}s
-        """
+Avg Duration: {stats.get('avg_duration', 0):.2f}s"""
         self.send_message(message)

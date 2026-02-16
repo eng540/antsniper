@@ -2344,7 +2344,14 @@ class EliteSniperV2:
                         
                         target_element = elements[0]
                         href = target_element.get_attribute("href")
-                        full_url = href if href.startswith("http") else f"https://service2.diplo.de{href}"
+                        
+                        # FIX: Ensure proper URL construction with slash separator
+                        if href.startswith("http"):
+                            full_url = href
+                        else:
+                            # Add leading slash if href doesn't have one
+                            path = href if href.startswith("/") else f"/{href}"
+                            full_url = f"https://service2.diplo.de{path}"
                         
                         # Execute booking immediately
                         self._inject_booking_script(page, full_url)
