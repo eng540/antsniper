@@ -42,6 +42,7 @@ from .captcha import EnhancedCaptchaSolver
 from .notifier import send_alert, send_photo, send_success_notification, send_status_update
 from .debug_utils import DebugManager
 from .page_flow import PageFlowDetector
+from .diagnostic import ForensicMonitor, OperationTracker, TelegramReporter
 
 # Logging
 logging.basicConfig(
@@ -111,6 +112,11 @@ class EliteSniperV2:
         self.ntp_sync = NTPTimeSync(Config.NTP_SERVERS, Config.NTP_SYNC_INTERVAL)
         self.page_flow = PageFlowDetector()  # For accurate page type detection
         self.paused = Event() # Pause control
+        
+        # Forensic Diagnostic System
+        self.monitor = ForensicMonitor(base_dir="debug", enabled=True)
+        self.tracker = OperationTracker()
+        self.telegram_reporter = TelegramReporter(enabled=True)
         
         # Configuration
         self.base_url = self._prepare_base_url(Config.TARGET_URL)
@@ -389,17 +395,20 @@ class EliteSniperV2:
             viewport_height = 768 + random.randint(0, 30)
             
             # Context arguments
-            context_args = {
+            # Enable video recording for forensic analysis
+            context_options = {
                 "user_agent": user_agent,
                 "viewport": {"width": viewport_width, "height": viewport_height},
-                "locale": "en-US",
-                "timezone_id": "Asia/Aden",
-                "ignore_https_errors": True
+                "locale": "en-US", # Keep original locale
+                "timezone_id": "Asia/Aden", # Keep original timezone
+                "ignore_https_errors": True,
+                "record_video_dir": "debug/videos",
+                "record_video_size": {"width": 1280, "height": 720}
             }
             
             # Add proxy if provided
             if proxy:
-                context_args["proxy"] = {"server": proxy}
+                context_options["proxy"] = {"server": proxy}
                 logger.info(f"[PROXY] [W{worker_id}] Using proxy: {proxy[:30]}...")
             
             # Create context
@@ -2295,8 +2304,15 @@ class EliteSniperV2:
                 # === STEP 1: SOLVE GATE IF PRESENT ===
                 if page.locator("#appointment_captcha_month").is_visible():
                     worker_logger.info("🛡️ Gate detected - Solving...")
+                    
+                    # DIAGNOSTIC: Capture captcha detection
+                    self.monitor.quick_capture(page, "captcha_detected", category="captcha")
+                    
                     success, code, _ = self.solver.solve_from_page(page, "ROTATION_GATE")
                     if success:
+                        # DIAGNOSTIC: Capture before submission
+                        self.monitor.quick_capture(page, f"captcha_submitting_{code}", category="captcha")
+                        
                         self.solver.submit_captcha(page)
                         
                         # TIMING FIX: Wait for server response properly
@@ -2312,6 +2328,10 @@ class EliteSniperV2:
                 
                 # === STEP 2: CHECK SESSION HEALTH ===
                 if not self.check_session_health(page, session, worker_logger):
+                    # DIAGNOSTIC: Capture session death
+                    self.monitor.error_capture(page, "session_died")
+                    self.telegram_reporter.report_error("Session Died", None)
+                    
                     worker_logger.warning("💀 Session Died - Exiting for restart...")
                     return False
                 
