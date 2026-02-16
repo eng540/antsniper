@@ -1701,7 +1701,22 @@ class EliteSniperV2:
         """Handle Day Page: Scan Slots -> Navigate Form"""
         try:
             logger.info("📆 Analyzing Day Page...")
-            page.goto(url, timeout=20000, wait_until="domcontentloaded")
+            
+            # CRITICAL FIX FOR RACE CONDITION:
+            # Don't use page.goto() here - URL already injected from slot detection
+            # Just wait for navigation to complete
+            try:
+                logger.info("⏳ Waiting for page navigation to complete after injection...")
+                # Wait for network to be idle (all resources loaded)
+                page.wait_for_load_state("networkidle", timeout=10000)
+                # Additional wait for DOM to be fully ready
+                page.wait_for_load_state("domcontentloaded", timeout=5000)
+                # Final buffer to ensure JavaScript execution completed
+                time.sleep(1.5)
+                logger.info("✅ Page fully loaded and stabilized")
+            except Exception as e:
+                logger.warning(f"⚠️ Wait timeout (acceptable): {e}")
+                # Even if timeout, try to proceed - page might be functional
             
             slot_links = page.locator("a.arrow[href*='appointment_showForm']").all()
             if not slot_links:
