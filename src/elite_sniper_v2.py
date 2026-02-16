@@ -412,7 +412,7 @@ class EliteSniperV2:
                 logger.info(f"[PROXY] [W{worker_id}] Using proxy: {proxy[:30]}...")
             
             # Create context
-            context = browser.new_context(**context_args)
+            context = browser.new_context(**context_options)
             page = context.new_page()
             
             # Anti-detection + Keep-Alive script
