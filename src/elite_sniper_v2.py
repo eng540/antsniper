@@ -2234,21 +2234,37 @@ class EliteSniperV2:
         - Stays on calendar page (closed loop)
         - Navigates via DOM clicks (preserves session)
         - Immediate interrupt on slot detection (no delays)
+        
+        ENTRY PATTERN (FIX #3 - Sequential Entry):
+        - Start from BASE URL (no dateStr) to establish session
+        - THEN navigate to target months via DOM clicks
         """
         worker_logger.info("🏰 ENTERING PERSISTENT SESSION MODE (SETTLEMENT)")
         
-        # Initial navigation to first month
+        # Get month URLs for reference
         month_urls = self.generate_month_urls()
         if not month_urls:
             worker_logger.error("❌ No month URLs generated")
             return False
         
-        # Navigate to first month to establish baseline
+        # FIX #3: SEQUENTIAL ENTRY PATTERN
+        # Step 1: Clean the base URL (remove any existing dateStr parameter)
+        base_clean = self.base_url.split("&dateStr=")[0] if "&dateStr=" in self.base_url else self.base_url
+        base_clean = base_clean.split("?dateStr=")[0] if "?dateStr=" in base_clean else base_clean
+        
+        worker_logger.info(f"🚪 SEQUENTIAL ENTRY: Starting from BASE URL (current month)")
+        worker_logger.info(f"📍 Base URL: {base_clean[:80]}...")
+        
+        # Step 2: Navigate to base URL first (establishes session)
         try:
-            page.goto(month_urls[0], wait_until="domcontentloaded", timeout=20000)
+            page.goto(base_clean, wait_until="domcontentloaded", timeout=60000)
+            worker_logger.info("✅ Base session established")
         except Exception as e:
-            worker_logger.error(f"❌ Initial navigation failed: {e}")
+            worker_logger.error(f"❌ Base navigation failed: {e}")
             return False
+        
+        # Step 3: Wait a moment for session to fully establish
+        time.sleep(1)
         
         # Slot detection selectors
         slot_selectors = [
@@ -2257,16 +2273,17 @@ class EliteSniperV2:
             "a[href*='showDay']"
         ]
         
-        # Month navigation patterns (ACTUAL SITE STRUCTURE)
+        # Month navigation patterns (ACTUAL SITE STRUCTURE - XPATH FOR COMPATIBILITY)
         # HTML: <a href="...dateStr=XX.XX.XXXX"><img src="images/go-next.gif"></a>
+        # Fixed: Using flexible matching without .gif extension to support variants
         next_month_selectors = [
-            "a:has(img[src*='go-next.gif'])",      # Primary selector
-            "a img[src*='go-next.gif']"            # Fallback
+            "xpath=//a[img[contains(@src, 'go-next')]]",  # XPath: <a> containing <img> with 'go-next'
+            "img[src*='go-next']"                          # Fallback: find img then navigate to parent
         ]
         
         prev_month_selectors = [
-            "a:has(img[src*='go-previous.gif'])",  # Primary selector
-            "a img[src*='go-previous.gif']"        # Fallback
+            "xpath=//a[img[contains(@src, 'go-previous')]]",  # XPath: <a> containing <img> with 'go-previous'
+            "img[src*='go-previous']"                          # Fallback: find img then navigate to parent
         ]
         
         current_direction = "forward"  # Track navigation direction
@@ -2321,14 +2338,26 @@ class EliteSniperV2:
                     # Try to click "next month" button
                     for selector in next_month_selectors:
                         try:
-                            btn = page.locator(selector).first
+                            if selector.startswith("xpath="):
+                                # XPath selector - already selects <a> element
+                                btn = page.locator(selector).first
+                            else:
+                                # CSS selector for <img> - need to get parent <a>
+                                img = page.locator(selector).first
+                                if img.count() > 0:
+                                    # Navigate to parent <a> element
+                                    btn = img.locator("xpath=..")
+                                else:
+                                    continue
+                            
                             if btn.count() > 0 and btn.is_visible():
                                 worker_logger.info(f"→ Clicking NEXT month button")
                                 btn.click()
                                 page.wait_for_load_state("domcontentloaded", timeout=5000)
                                 navigated = True
                                 break
-                        except:
+                        except Exception as e:
+                            worker_logger.debug(f"Selector {selector} failed: {e}")
                             continue
                     
                     # If we navigated forward 2-3 times, reverse direction
@@ -2342,14 +2371,26 @@ class EliteSniperV2:
                     # Try to click "previous month" button
                     for selector in prev_month_selectors:
                         try:
-                            btn = page.locator(selector).first
+                            if selector.startswith("xpath="):
+                                # XPath selector - already selects <a> element
+                                btn = page.locator(selector).first
+                            else:
+                                # CSS selector for <img> - need to get parent <a>
+                                img = page.locator(selector).first
+                                if img.count() > 0:
+                                    # Navigate to parent <a> element
+                                    btn = img.locator("xpath=..")
+                                else:
+                                    continue
+                            
                             if btn.count() > 0 and btn.is_visible():
                                 worker_logger.info(f"← Clicking PREVIOUS month button")
                                 btn.click()
                                 page.wait_for_load_state("domcontentloaded", timeout=5000)
                                 navigated = True
                                 break
-                        except:
+                        except Exception as e:
+                            worker_logger.debug(f"Selector {selector} failed: {e}")
                             continue
                     
                     if navigated:

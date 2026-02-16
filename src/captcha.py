@@ -481,13 +481,18 @@ class EnhancedCaptchaSolver:
     def _extract_base64_captcha(self, page: Page, location: str = "EXTRACT") -> Optional[bytes]:
         """
         Extract captcha image from CSS background-image base64 data URL
-        This is how the German embassy website embeds captcha images
+        WITH SMART POLLING to wait for actual image to load (not placeholder)
+        
+        The website initially shows a 931-byte loading placeholder, then loads
+        the real captcha (5000+ bytes). This function polls up to 1 second
+        waiting for the full image.
         
         Returns:
             Image bytes or None if not found
         """
         import base64
         import re
+        import time
         
         try:
             # Try to find captcha div with base64 background
@@ -497,29 +502,54 @@ class EnhancedCaptchaSolver:
                 logger.debug(f"[{location}] Captcha div not visible")
                 return None
             
-            # Get the style attribute
-            style = captcha_div.get_attribute("style")
+            # SMART POLLING LOOP: Wait up to 1 second for real image to load
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                # Get the style attribute
+                style = captcha_div.get_attribute("style")
+                
+                if not style:
+                    logger.debug(f"[{location}] No style attribute on captcha div")
+                    time.sleep(0.1)
+                    continue
+                
+                # Extract base64 from: background:white url('data:image/jpg;base64,XXXXX')
+                pattern = r"url\(['\"]?data:image/[^;]+;base64,([A-Za-z0-9+/=]+)['\"]?\)"
+                match = re.search(pattern, style)
+                
+                if not match:
+                    logger.debug(f"[{location}] No base64 pattern found in style")
+                    time.sleep(0.1)
+                    continue
+                
+                base64_data = match.group(1)
+                
+                # Add padding if needed (Fix for base64 decode errors)
+                padding_needed = len(base64_data) % 4
+                if padding_needed:
+                    base64_data += '=' * (4 - padding_needed)
+                
+                # Decode base64 to bytes
+                try:
+                    image_bytes = base64.b64decode(base64_data)
+                except Exception as decode_err:
+                    logger.warning(f"[{location}] Base64 decode failed: {decode_err}")
+                    time.sleep(0.1)
+                    continue
+                
+                # CHECK SIZE: If small (<2000 bytes), it's likely a loading placeholder
+                if len(image_bytes) < 2000:
+                    logger.debug(f"[{location}] Small image ({len(image_bytes)} bytes) - attempt {attempt+1}/{max_attempts}, waiting for real captcha...")
+                    time.sleep(0.1)
+                    continue
+                
+                # SUCCESS: Got real captcha image
+                logger.info(f"[{location}] ✅ Extracted captcha from base64 ({len(image_bytes)} bytes) after {attempt+1} attempts")
+                return image_bytes
             
-            if not style:
-                logger.debug(f"[{location}] No style attribute on captcha div")
-                return None
-            
-            # Extract base64 from: background:white url('data:image/jpg;base64,XXXXX') 
-            # Pattern matches the base64 data
-            pattern = r"url\(['\"]?data:image/[^;]+;base64,([A-Za-z0-9+/=]+)['\"]?\)"
-            match = re.search(pattern, style)
-            
-            if not match:
-                logger.debug(f"[{location}] No base64 pattern found in style")
-                return None
-            
-            base64_data = match.group(1)
-            
-            # Decode base64 to bytes
-            image_bytes = base64.b64decode(base64_data)
-            
-            logger.info(f"[{location}] Extracted captcha from base64 ({len(image_bytes)} bytes)")
-            return image_bytes
+            # All attempts exhausted - return None
+            logger.warning(f"[{location}] ⚠️ Polling timeout - no valid captcha image found after {max_attempts} attempts")
+            return None
             
         except Exception as e:
             logger.warning(f"[{location}] Base64 extraction failed: {e}")
