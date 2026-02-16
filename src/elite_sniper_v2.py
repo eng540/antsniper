@@ -2298,10 +2298,17 @@ class EliteSniperV2:
                     success, code, _ = self.solver.solve_from_page(page, "ROTATION_GATE")
                     if success:
                         self.solver.submit_captcha(page)
+                        
+                        # TIMING FIX: Wait for server response properly
+                        # Step 1: Wait for page to start responding (DOM ready)
                         try:
-                            page.wait_for_load_state("networkidle", timeout=10000)
+                            page.wait_for_load_state("domcontentloaded", timeout=5000)
                         except:
-                            pass
+                            pass  # Page might not reload if captcha wrong
+                        
+                        # Step 2: CRITICAL - Allow server validation time
+                        # Server needs time to validate captcha and update page state
+                        time.sleep(1.5)
                 
                 # === STEP 2: CHECK SESSION HEALTH ===
                 if not self.check_session_health(page, session, worker_logger):

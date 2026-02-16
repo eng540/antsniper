@@ -5,8 +5,12 @@ Integrates KingSniperV12 safe captcha checking with pre-solving capability
 
 import time
 import logging
-from typing import Optional, List, Tuple
+import os
+import tempfile
+from typing import Optional, List, Tuple, Dict
 from playwright.sync_api import Page
+from io import BytesIO
+from pathlib import Path
 import numpy as np
 import requests
 import json
@@ -1047,38 +1051,30 @@ class EnhancedCaptchaSolver:
             logger.error(f"[{location}] Captcha solving workflow error: {e}")
             return False, None, "ERROR"
     
-    def submit_captcha(self, page: Page, method: str = "auto") -> bool:
+    def submit_captcha(self, page: Page, method: str = "enter") -> bool:
         """
-        Submit captcha with enhanced reliability
+        Submit captcha - OPTIMIZED for this appointment system
+        
+        This system uses Enter key submission ONLY (no submit buttons exist).
+        The previous button search loop wasted 3-6 seconds looking for non-existent buttons.
+        
+        Args:
+            page: Playwright page object
+            method: Submission method (kept for compatibility, but always uses Enter)
+        
+        Returns:
+            True if submission successful, False otherwise
         """
         try:
-            logger.info(f"[CAPTCHA] Submitting answer (Method: {method})...")
+            logger.info(f"[CAPTCHA] Submitting answer...")
             
-            # 1. Try generic submit buttons first if method is auto or click
-            if method in ["auto", "click"]:
-                # Specific buttons for this appointment system
-                buttons = [
-                    "input[name='submit']",
-                    "input[value='Weiter']",
-                    "input[value='Continue']",
-                    "button:has-text('Weiter')",
-                    "button:has-text('Continue')",
-                    "input[type='submit']"
-                ]
-                
-                for selector in buttons:
-                    try:
-                        btn = page.locator(selector).first
-                        if btn.is_visible(timeout=500):
-                            btn.click(timeout=2000)
-                            logger.info(f"Clicked submit button: {selector}")
-                            return True
-                    except:
-                        continue
-            
-            # 2. Fallback to Enter key (or if method='enter')
+            # Direct Enter press (this system doesn't have submit buttons)
             page.keyboard.press("Enter")
-            logger.info("Sent Enter key")
+            logger.info("✅ Sent Enter key")
+            
+            # Small wait for submission to register on client side
+            time.sleep(0.3)
+            
             return True
             
         except Exception as e:
