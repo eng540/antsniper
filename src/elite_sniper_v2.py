@@ -1593,13 +1593,26 @@ class EliteSniperV2:
         Returns: True if booking successful, False to move to next month
         """
         try:
-            # A. ROBUST NAVIGATION with Retry Logic
+            # A. SESSION-PRESERVING NAVIGATION (CRITICAL FIX!)
+            # Using JS navigation instead of page.goto() to preserve session cookies/tokens
+            # This prevents captcha on every month navigation
             logger.info(f"🌐 Navigating to: {url[:60]}...")
             
             max_nav_retries = 2
             for nav_attempt in range(max_nav_retries):
                 try:
-                    page.goto(url, timeout=60000, wait_until="domcontentloaded")
+                    # CRITICAL: Use JS navigation to preserve session
+                    # page.goto() creates new HTTP request → destroys session → captcha!
+                    # window.location.href reuses session → no captcha!
+                    page.evaluate(f"window.location.href = '{url}';")
+                    
+                    # Wait for navigation to complete
+                    try:
+                        page.wait_for_load_state("domcontentloaded", timeout=30000)
+                    except:
+                        # Page might already be loaded
+                        pass
+                    
                     break  # Success!
                 except Exception as nav_e:
                     logger.warning(f"⚠️ Navigation failed (Attempt {nav_attempt+1}/{max_nav_retries}): {nav_e}")
