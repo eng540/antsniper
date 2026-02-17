@@ -1747,19 +1747,31 @@ class EliteSniperV2:
             logger.critical(f"⏰ {len(slot_links)} SLOTS FOUND! ENGAGING!")
             self.global_stats.slots_found += len(slot_links)
             
-            # Click first slot
+            # Get first slot URL
             target_slot = slot_links[0]
-            logger.info("🎯 Clicking first available slot...")
-            target_slot.click()
-            time.sleep(2)
+            slot_href = target_slot.get_attribute("href")
             
-            # Mark success (simplified - full booking flow needs more work)
-            logger.critical("🎉 Reached booking form!")
-            self.global_stats.success = True
+            if slot_href:
+                # Build full booking form URL
+                base_domain = self.base_url.split("/extern")[0]
+                form_url = f"{base_domain}/{slot_href}" if not slot_href.startswith("http") else slot_href
+                
+                logger.critical(f"🎯 Navigating to booking form: {form_url[:60]}...")
+                
+                # Navigate to form and process booking
+                page.goto(form_url, timeout=20000, wait_until="domcontentloaded")
+                time.sleep(2)
+                
+                # Check if we have _process_booking_form
+                if hasattr(self, '_process_booking_form'):
+                    return self._process_booking_form(page, session, form_url, logger)
+                else:
+                    # Fallback: just mark success
+                    logger.critical("🎉 Reached booking form!")
+                    self.global_stats.success = True
+                    return True
             
-            # TODO: Add full form filling and submission
-            # For now, we've proven we can reach this point!
-            return True
+            return False
             
         except Exception as e:
             logger.error(f"❌ Day processing error: {e}")
@@ -1937,57 +1949,7 @@ class EliteSniperV2:
         
         return self.monitor.capture(page, operation, category)
 
-    def _process_day_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
-        """Handle Day Page: Scan Slots -> Navigate Form"""
-        try:
-            logger.info("📆 Analyzing Day Page...")
-            
-            # CRITICAL FIX FOR RACE CONDITION:
-            # Don't use page.goto() here - URL already injected from slot detection
-            # Just wait for navigation to complete
-            try:
-                logger.info("⏳ Waiting for page navigation to complete after injection...")
-                # Wait for network to be idle (all resources loaded)
-                page.wait_for_load_state("networkidle", timeout=10000)
-                # Additional wait for DOM to be fully ready
-                page.wait_for_load_state("domcontentloaded", timeout=5000)
-                # Final buffer to ensure JavaScript execution completed
-                time.sleep(1.5)
-                logger.info("✅ Page fully loaded and stabilized")
-            except Exception as e:
-                logger.warning(f"⚠️ Wait timeout (acceptable): {e}")
-                # Even if timeout, try to proceed - page might be functional
-            
-            slot_links = page.locator("a.arrow[href*='appointment_showForm']").all()
-            if not slot_links:
-                logger.info("⚠️ Days shown but no slots active.")
-                return False
-                
-            logger.critical(f"⏰ {len(slot_links)} SLOTS FOUND! ENGAGING!")
-            self.global_stats.slots_found += len(slot_links)
-            
-            # Pick first slot
-            target_slot = slot_links[0]
-            slot_href = target_slot.get_attribute("href")
-            
-            if slot_href:
-                base_domain = self.base_url.split("/extern")[0]
-                form_url = f"{base_domain}/{slot_href}" if not slot_href.startswith("http") else slot_href
-                
-                # TURBO INJECT (Legacy proven method) - CRITICAL FIX!
-                logger.critical(f"💉 INJECTING BOOKING URL: {form_url[:60]}...")
-                if self._inject_booking_script(page, form_url):
-                    time.sleep(1)  # Let page stabilize
-                    return self._process_booking_form(page, session, form_url, logger)
-                else:
-                    logger.error("❌ Injection failed - aborting")
-                    return False
-                
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Day processing error: {e}")
-            return False
+
 
     def _process_booking_form(self, page: Page, session: SessionState, url: str, logger) -> bool:
         """Handle Booking: Fill -> Captcha -> Smart Submit"""
