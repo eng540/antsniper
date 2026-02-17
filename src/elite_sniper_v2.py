@@ -2397,6 +2397,9 @@ class EliteSniperV2:
                 if day_links:
                     worker_logger.info(f"📅 Found {len(day_links)} days with potential slots - verifying...")
                     
+                    # Save current month URL for reliable return
+                    current_month_url = page.url
+                    
                     # Check each day for REAL slots
                     for idx, day_link in enumerate(day_links):
                         try:
@@ -2412,7 +2415,21 @@ class EliteSniperV2:
                             
                             # Navigate to day page
                             self._inject_booking_script(page, day_url)
-                            time.sleep(1.5)
+                            
+                            # CRITICAL: Wait for page to actually load
+                            try:
+                                page.wait_for_load_state("networkidle", timeout=5000)
+                            except:
+                                pass  # Continue even if timeout
+                            time.sleep(2)  # Increased buffer for Railway
+                            
+                            # Verify we're actually on a day page
+                            if "appointment_showDay" not in page.url:
+                                worker_logger.error(f"⚠️ Navigation failed - Expected day page, got: {page.url}")
+                                # Reload month page explicitly
+                                self._inject_booking_script(page, current_month_url)
+                                time.sleep(2)
+                                continue
                             
                             # NOW check for REAL slots (appointment_showForm)
                             slot_links = page.locator("a.arrow[href*='appointment_showForm']").all()
@@ -2432,16 +2449,22 @@ class EliteSniperV2:
                                     return False
                             else:
                                 worker_logger.info(f"❌ Day {idx+1} has no active slots (already booked)")
-                                # Go back to month page for next day
-                                page.go_back()
-                                time.sleep(1)
+                                
+                                # CRITICAL FIX: Don't use go_back() - it fails after injection!
+                                # Instead, reload month page explicitly
+                                self._inject_booking_script(page, current_month_url)
+                                try:
+                                    page.wait_for_load_state("networkidle", timeout=3000)
+                                except:
+                                    pass
+                                time.sleep(2)
                                 
                         except Exception as e:
                             worker_logger.error(f"⚠️ Error checking day {idx+1}: {e}")
-                            # Try to recover - go back to month page
+                            # Try to recover - reload month page explicitly
                             try:
-                                page.go_back()
-                                time.sleep(1)
+                                self._inject_booking_script(page, current_month_url)
+                                time.sleep(2)
                             except:
                                 pass
                     
