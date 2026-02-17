@@ -1305,8 +1305,14 @@ class EnhancedCaptchaSolver:
                 if not match:
                     continue
                     
+                # CRITICAL FIX: Add error handling for base64 decode
                 import base64
-                image_bytes = base64.b64decode(match.group(1))
+                try:
+                    image_bytes = base64.b64decode(match.group(1))
+                except Exception as decode_error:
+                    logger.warning(f"[{location}] Base64 decode error: {decode_error} - retrying...")
+                    time.sleep(0.1)
+                    continue
                 
                 # Solve Local
                 result = self.ocr.classification(image_bytes)
@@ -1335,6 +1341,8 @@ class EnhancedCaptchaSolver:
             except Exception as e:
                 logger.error(f"[{location}] Error in turbo loop: {e}")
                 time.sleep(0.5)
+                # Continue to next attempt instead of failing completely
+                continue
         
         return False
 
