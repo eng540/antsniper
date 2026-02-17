@@ -2379,31 +2379,63 @@ class EliteSniperV2:
             if submitted:
                 worker_logger.info(f"⚡ Turbo Sequence Executed in {time.time() - start_time:.2f}s. Waiting for result...")
                 
-                # Wait for navigation result
+                # 1. انتظار أولي للاستقرار (معالجة Race Condition)
                 try:
-                    # We expect navigation or error
-                    page.wait_for_load_state("networkidle", timeout=15000)
+                    page.wait_for_load_state("domcontentloaded", timeout=10000)
                 except:
                     pass
-                
-                # Validate State
-                if self._check_success(page, worker_logger):
-                    return True
-                    
-                # Check for failure
-                content = page.content().lower()
-                if "appointment number" in content or "termin nummer" in content:
-                     return True
-                
-                if "ref-id" in content or "beginnen sie" in content:
-                    worker_logger.error("💀 Hard Failure: Session invalid.")
-                    return False
-                    
-                # If we are here, we might be back on the form (soft fail)
-                if page.locator("input[name='lastname']").count() > 0:
-                     worker_logger.warning("❌ Rejected (Soft) - Retrying Turbo...")
-                     continue
-            
+
+                # 2. التحقق الآمن مع معالجة خطأ "الصفحة تتغير" (ممتص الصدمات)
+                for check_attempt in range(5):  # 5 محاولات للتأكد
+                    try:
+                        # محاولة التحقق من النجاح
+                        if self._check_success(page, worker_logger):
+                            return True
+
+                        # إذا لم نجد نجاحاً، نفحص المحتوى الحالي
+                        content = page.content().lower()
+
+                        # مؤشرات النجاح الإضافية
+                        if "appointment number" in content or "termin nummer" in content or "ihre buchung" in content:
+                            worker_logger.critical("🏆 SUCCESS CONFIRMED! Booking markers found!")
+                            self.global_stats.success = True
+                            self.debug_manager.save_critical_screenshot(page, "VICTORY_CONFIRMED", session.worker_id)
+                            self.stop_event.set()
+                            return True
+
+                        # مؤشرات الفشل الصلب
+                        if "ref-id" in content or "beginnen sie" in content or "session expired" in content:
+                            worker_logger.error("💀 Hard Failure: Session invalid.")
+                            return False
+
+                        # رفض صامت - العودة للنموذج
+                        if page.locator("input[name='lastname']").count() > 0:
+                            worker_logger.warning("❌ Rejected (Soft) - Form reappeared. Retrying...")
+                            break  # نخرج للمحاولة التالية في الحلقة الخارجية
+
+                        # إذا وصلنا هنا، الصفحة مستقرة لكن لا نعرف حالتها
+                        worker_logger.info(f"ℹ️ Page stable but unclear state. Attempt {check_attempt+1}/5")
+                        time.sleep(1)
+
+                    except Exception as e:
+                        # ممتص الصدمات الرئيسي - معالجة خطأ التنقل
+                        error_msg = str(e).lower()
+                        if "navigating" in error_msg or "context was destroyed" in error_msg or "changing the content" in error_msg:
+                            worker_logger.info(f"🔄 Page is navigating... waiting ({check_attempt+1}/5)")
+                            time.sleep(2)  # انتظار اضافي لتكتمل الصفحة
+                            continue  # المحاولة مرة أخرى
+                        else:
+                            # خطأ حقيقي آخر نرفعه
+                            worker_logger.error(f"❌ Unexpected error during check: {e}")
+                            raise e
+
+                # إذا انتهت المحاولات الخمس ولم نعرف النتيجة
+                worker_logger.warning("⚠️ Could not determine result after 5 checks - assuming retry needed")
+                continue  # نعود لحلقة المحاولات الرئيسية
+
+            else:
+                worker_logger.error("❌ Turbo Protocol Failed (Max Retries)")
+                return False
             else:
                 worker_logger.error("❌ Turbo Protocol Failed (Max Retries)")
                 return False
