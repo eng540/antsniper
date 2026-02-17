@@ -2476,6 +2476,21 @@ class EliteSniperV2:
                         worker_logger.info("🛡️ On gate page - waiting for server response...")
                         # Wait for server to process captcha submission
                         time.sleep(2)
+                        
+                        # BUGFIX #2: Check if still on captcha (OCR failed or wrong answer)
+                        try:
+                            still_on_captcha = page.locator("input[name='captchaText']").count() > 0
+                        except:
+                            still_on_captcha = False
+                        
+                        if still_on_captcha:
+                            # OCR likely failed (TOO_SHORT/TOO_LONG) - reload for fresh captcha
+                            worker_logger.warning("⚠️ Still on captcha after wait - reloading for fresh image...")
+                            try:
+                                page.reload(wait_until="domcontentloaded", timeout=10000)
+                                time.sleep(1)
+                            except Exception as e:
+                                worker_logger.error(f"❌ Page reload failed: {e}")
                     else:
                         # We're on calendar but buttons missing - use URL fallback
                         worker_logger.warning("⚠️ DOM buttons not found - using URL fallback")
