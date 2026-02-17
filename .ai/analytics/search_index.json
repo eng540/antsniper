@@ -1,0 +1,95 @@
+{
+    "search_index": {
+        "keywords": {
+            "docker": [
+                "KB-002",
+                "NET-001",
+                "deployment"
+            ],
+            "navigation": [
+                "KB-001",
+                "NAV-001",
+                "selectors"
+            ],
+            "network": [
+                "KB-002",
+                "NET-001"
+            ],
+            "captcha": [
+                "KB-003",
+                "ocr"
+            ],
+            "selector": [
+                "KB-001",
+                "NAV-001"
+            ],
+            "session": [
+                "KB-004",
+                "cookies"
+            ],
+            "timeout": [
+                "NET-001"
+            ],
+            "href": [
+                "KB-001",
+                "NAV-001"
+            ],
+            "image": [
+                "KB-001"
+            ],
+            "windows": [
+                "KB-002",
+                "NET-001"
+            ]
+        },
+        "components": {
+            "elite_sniper_v2.py": [
+                "NAV-001",
+                "KB-001",
+                "KB-004"
+            ],
+            "docker-compose.yml": [
+                "NET-001",
+                "KB-002"
+            ],
+            "captcha.py": [
+                "KB-003"
+            ],
+            "main.py": [
+                "NET-001"
+            ]
+        },
+        "incidents_by_severity": {
+            "CRITICAL": [
+                "NET-001"
+            ],
+            "HIGH": [],
+            "RESOLVED": [
+                "NAV-001"
+            ]
+        },
+        "decisions_by_status": {
+            "APPROVED": [
+                "NAV-001"
+            ],
+            "TEMPORARY": [
+                "NET-001"
+            ]
+        }
+    },
+    "quick_search": {
+        "most_referenced": [
+            "NET-001",
+            "NAV-001",
+            "KB-002",
+            "KB-001"
+        ],
+        "recent_activity": [
+            "NET-001",
+            "NAV-001"
+        ],
+        "critical_items": [
+            "NET-001"
+        ]
+    }
+}

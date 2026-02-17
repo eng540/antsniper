@@ -1,0 +1,106 @@
+{
+    "knowledge_entries": [
+        {
+            "id": "KB-001",
+            "title": "DOM Navigation with Blocked Resources",
+            "category": "navigation",
+            "confidence": "HIGH",
+            "evidence_count": 2,
+            "pattern": "When resource handler blocks images, image-based selectors fail visibility checks",
+            "solution": "Use href-pattern matching instead of image src matching",
+            "tags": [
+                "navigation",
+                "selectors",
+                "DOM",
+                "resource-blocking"
+            ],
+            "related_incidents": [
+                "NAV-001"
+            ],
+            "related_decisions": [
+                "NAV-001"
+            ],
+            "files": [
+                "d:\\ai\\sniper\\.ai\\knowledge.md#DOM Navigation Patterns"
+            ]
+        },
+        {
+            "id": "KB-002",
+            "title": "Docker Network Isolation on Windows",
+            "category": "deployment",
+            "confidence": "CONFIRMED",
+            "evidence_count": 3,
+            "pattern": "Docker container networking incompatible with Windows host network config",
+            "solution": "Use network_mode: host or run directly on host",
+            "tags": [
+                "docker",
+                "networking",
+                "windows",
+                "deployment"
+            ],
+            "related_incidents": [
+                "NET-001"
+            ],
+            "related_decisions": [
+                "NET-001"
+            ],
+            "files": [
+                "d:\\ai\\sniper\\.ai\\knowledge.md#Docker Networking"
+            ]
+        },
+        {
+            "id": "KB-003",
+            "title": "Captcha Solving with ddddocr BETA",
+            "category": "captcha",
+            "confidence": "MEDIUM",
+            "evidence_count": 1,
+            "pattern": "BETA mode provides higher accuracy than default for site-specific captchas",
+            "solution": "Use ddddocr(beta=True) with image preprocessing",
+            "tags": [
+                "captcha",
+                "ocr",
+                "ddddocr"
+            ],
+            "related_incidents": [],
+            "related_decisions": [],
+            "files": [
+                "d:\\ai\\sniper\\.ai\\knowledge.md#Captcha Solving Strategy"
+            ]
+        },
+        {
+            "id": "KB-004",
+            "title": "Persistent Session Management",
+            "category": "architecture",
+            "confidence": "MEDIUM",
+            "evidence_count": 1,
+            "pattern": "Staying on calendar page with DOM clicks preserves cookies better than URL changes",
+            "solution": "Use Settlement Mode - persistent session with DOM navigation",
+            "tags": [
+                "session",
+                "cookies",
+                "architecture"
+            ],
+            "related_incidents": [],
+            "related_decisions": [],
+            "files": [
+                "d:\\ai\\sniper\\.ai\\knowledge.md#Session Management"
+            ]
+        }
+    ],
+    "index_metadata": {
+        "total_entries": 4,
+        "by_category": {
+            "navigation": 1,
+            "deployment": 1,
+            "captcha": 1,
+            "architecture": 1
+        },
+        "by_confidence": {
+            "HIGH": 1,
+            "CONFIRMED": 1,
+            "MEDIUM": 2,
+            "LOW": 0
+        },
+        "last_updated": "2026-02-17T13:44:09Z"
+    }
+}

@@ -1,0 +1,62 @@
+{
+    "active_risks": [
+        {
+            "id": "NET-001",
+            "title": "Docker Network Isolation",
+            "severity": "CRITICAL",
+            "probability": "CONFIRMED",
+            "impact": "BLOCKS_PRIMARY_GOAL",
+            "first_detected": "2026-02-17T13:16:00Z",
+            "status": "IDENTIFIED",
+            "mitigation_status": "WORKAROUND_AVAILABLE",
+            "owner": "deployment",
+            "related_components": [
+                "Docker",
+                "networking",
+                "container"
+            ],
+            "evidence_events": [
+                "NET-001"
+            ],
+            "mitigation_plan": "Immediate: Run outside Docker. Long-term: Configure network_mode: host"
+        },
+        {
+            "id": "NAV-001",
+            "title": "DOM Navigation Selector Mismatch",
+            "severity": "RESOLVED",
+            "probability": "WAS_CONFIRMED",
+            "impact": "DEGRADED_FUNCTIONALITY",
+            "first_detected": "2026-02-16T21:15:00Z",
+            "status": "RESOLVED",
+            "resolution_date": "2026-02-17T13:33:38Z",
+            "owner": "navigation",
+            "related_components": [
+                "elite_sniper_v2.py",
+                "DOM selectors"
+            ],
+            "evidence_events": [
+                "NAV-001"
+            ],
+            "resolution": "Changed from image-based to href-based selectors"
+        }
+    ],
+    "emerging_risks": [
+        {
+            "id": "RISK-TIME",
+            "title": "Attack Window Approaching",
+            "severity": "HIGH",
+            "probability": "CERTAIN",
+            "first_detected": "2026-02-17T13:44:09Z",
+            "time_to_deadline": "~1.5 hours until 18:00",
+            "mitigation": "Must resolve NET-001 before 18:00 Aden time"
+        }
+    ],
+    "historical_risks": [],
+    "risk_metrics": {
+        "total_active": 1,
+        "critical": 1,
+        "high": 0,
+        "resolved_today": 1,
+        "average_resolution_time": "N/A - insufficient data"
+    }
+}

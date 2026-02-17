@@ -2346,6 +2346,8 @@ class EliteSniperV2:
         navigation_selector = "a[onclick*='startCommitRequest'][href*='appointment_showMonth']" 
         
         current_direction = "forward"  # Track navigation direction
+        captcha_fail_count = 0  # Track consecutive captcha failures
+        MAX_CAPTCHA_FAILS = 5  # Restart session after this many failures
         
         worker_logger.info("🔁 Starting closed-loop navigation (DOM-based)")
         
@@ -2354,6 +2356,15 @@ class EliteSniperV2:
                 # === STEP 1: SOLVE GATE IF PRESENT ===
                 if page.locator("#appointment_captcha_month").is_visible():
                     worker_logger.info("🛡️ Gate detected - Solving...")
+                    
+                    # Check if we've failed too many times
+                    if captcha_fail_count >= MAX_CAPTCHA_FAILS:
+                        worker_logger.critical(f"❌ {MAX_CAPTCHA_FAILS} consecutive captcha failures - RESTARTING SESSION")
+                        worker_logger.warning("⚠️ Reloading page to reset captcha difficulty...")
+                        page.reload()
+                        captcha_fail_count = 0
+                        time.sleep(3)
+                        continue
                     
                     # DIAGNOSTIC: Capture captcha detection
                     self.monitor.quick_capture(page, "captcha_detected", category="captcha")
@@ -2368,13 +2379,27 @@ class EliteSniperV2:
                         # TIMING FIX: Wait for server response properly
                         # Step 1: Wait for page to start responding (DOM ready)
                         try:
-                            page.wait_for_load_state("domcontentloaded", timeout=5000)
+                            page.wait_for_load_state("domcontentloaded", timeout=3000)
                         except:
-                            pass  # Page might not reload if captcha wrong
+                            pass
                         
-                        # Step 2: CRITICAL - Allow server validation time
-                        # Server needs time to validate captcha and update page state
-                        time.sleep(1.5)
+                        # Step 2: Navigation pause (let server process)
+                        time.sleep(2)
+                        
+                        # Check if still on captcha page
+                        if page.locator("#appointment_captcha_month").is_visible():
+                            captcha_fail_count += 1  # Increment failure counter
+                            worker_logger.warning(f"⚠️ Still on captcha after wait ({captcha_fail_count}/{MAX_CAPTCHA_FAILS}) - reloading for fresh image...")
+                            # Reload to get fresh captcha (avoid stale image)
+                            page.reload()
+                            time.sleep(2)
+                        else:
+                            # Captcha passed! Reset counter
+                            captcha_fail_count = 0
+                            worker_logger.info("✅ Captcha solved successfully - counter reset")
+                    else:
+                        captcha_fail_count += 1  # OCR failed
+                        worker_logger.error(f"⚠️ OCR failed to solve captcha ({captcha_fail_count}/{MAX_CAPTCHA_FAILS})")
                 
                 # === STEP 2: CHECK SESSION HEALTH ===
                 if not self.check_session_health(page, session, worker_logger):

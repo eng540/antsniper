@@ -1,0 +1,63 @@
+{
+    "changes": [
+        {
+            "id": "NAV-001",
+            "timestamp": "2026-02-17T13:33:38Z",
+            "component": "navigation",
+            "change_type": "SELECTOR_UPDATE",
+            "description": "Changed from image-based to href-based selectors",
+            "impact_assessment": {
+                "affected_components": [
+                    "elite_sniper_v2.py",
+                    "_persistent_session_loop"
+                ],
+                "risk_level": "LOW",
+                "reversibility": "HIGH",
+                "testing_required": true,
+                "deployment_risk": "LOW"
+            },
+            "dependencies": [],
+            "blocks": [],
+            "enables": [
+                "Reliable DOM navigation",
+                "Session persistence"
+            ]
+        },
+        {
+            "id": "NET-001-WORKAROUND",
+            "timestamp": "2026-02-17T13:33:38Z",
+            "component": "deployment",
+            "change_type": "DEPLOYMENT_METHOD",
+            "description": "Run outside Docker temporarily",
+            "impact_assessment": {
+                "affected_components": [
+                    "deployment",
+                    "main.py",
+                    "dependencies"
+                ],
+                "risk_level": "MEDIUM",
+                "reversibility": "HIGH",
+                "testing_required": true,
+                "deployment_risk": "MEDIUM"
+            },
+            "dependencies": [
+                "Host Python 3.11+",
+                "pip packages"
+            ],
+            "blocks": [],
+            "enables": [
+                "Network connectivity",
+                "Bot operation"
+            ]
+        }
+    ],
+    "impact_summary": {
+        "total_changes": 2,
+        "high_impact": 0,
+        "medium_impact": 1,
+        "low_impact": 1,
+        "components_affected": 5,
+        "architectural_changes": 1,
+        "deployment_changes": 1
+    }
+}

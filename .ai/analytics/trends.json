@@ -1,0 +1,71 @@
+{
+    "event_trends": {
+        "total_events": 10,
+        "by_domain": {
+            "SYSTEM": 10,
+            "CODE": 0,
+            "DECISION": 0,
+            "ERROR": 0,
+            "FIX": 0
+        },
+        "by_type": {
+            "INIT": 10,
+            "UPGRADE": 0,
+            "CHECKPOINT": 0,
+            "ERROR": 0,
+            "FIX": 0
+        },
+        "by_result": {
+            "SUCCESS": 10,
+            "FAILED": 0,
+            "PARTIAL": 0
+        }
+    },
+    "component_activity": {
+        "memory": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "events": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "state": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "knowledge": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "decisions": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "metrics": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "incidents": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "goals": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "progress": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        },
+        "checkpoints": {
+            "events": 1,
+            "last_activity": "2026-02-17T13:33:38Z"
+        }
+    },
+    "time_series": {
+        "events_per_hour": {
+            "2026-02-17T13:00": 10
+        }
+    }
+}

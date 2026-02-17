@@ -1,0 +1,38 @@
+{
+  "current_version": "0.1.0",
+  "active_components": [
+    "elite_sniper_v2.py",
+    "captcha.py",
+    "config.py",
+    "main.py"
+  ],
+  "architecture_summary": "Elite Sniper V2 - Appointment booking bot with persistent session mode and DOM navigation",
+  "known_risks": [
+    "Docker network isolation preventing internet connectivity",
+    "Navigation selectors may not match actual site HTML",
+    "Captcha solving reliability depends on OCR accuracy"
+  ],
+  "operational_status": "DEGRADED - Docker networking issue blocking connections",
+  "last_checkpoint": "2026-02-17T13:33:38Z",
+  "best_known_configurations": [
+    "EXECUTION_MODE=AUTO with ddddocr BETA mode",
+    "HEADLESS=True for production",
+    "ATTACK_HOUR=18 for Aden timezone"
+  ],
+  "current_issues": [
+    {
+      "id": "NET-001",
+      "severity": "CRITICAL",
+      "description": "Docker container cannot reach external internet",
+      "status": "IDENTIFIED",
+      "workaround": "Run bot outside Docker using python src/main.py"
+    },
+    {
+      "id": "NAV-001",
+      "severity": "RESOLVED",
+      "description": "DOM navigation buttons not found due to image blocking",
+      "status": "FIXED",
+      "solution": "Changed selectors from image-based to href-based"
+    }
+  ]
+}

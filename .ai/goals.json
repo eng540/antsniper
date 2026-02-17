@@ -1,0 +1,36 @@
+{
+    "primary_goal": {
+        "description": "Successfully book visa appointment when slots become available",
+        "target_time": "18:00 Aden time daily",
+        "success_criteria": [
+            "Bot connects to website successfully",
+            "Navigation between months works reliably",
+            "Captcha solving succeeds >70% of attempts",
+            "Form submission completes without errors",
+            "Booking confirmation received"
+        ],
+        "current_blockers": [
+            "Docker network isolation (NET-001)"
+        ]
+    },
+    "technical_goals": {
+        "fix_docker_networking": {
+            "priority": "CRITICAL",
+            "deadline": "Before next attack window (18:00)",
+            "status": "IN_PROGRESS",
+            "approach": "Run outside Docker as immediate workaround"
+        },
+        "verify_dom_navigation": {
+            "priority": "HIGH",
+            "deadline": "Before production run",
+            "status": "COMPLETED",
+            "resolution": "Selectors updated and pushed to GitHub"
+        },
+        "optimize_captcha_accuracy": {
+            "priority": "MEDIUM",
+            "deadline": "Ongoing",
+            "status": "MONITORING",
+            "current_rate": "~75% for 6-char captchas"
+        }
+    }
+}
