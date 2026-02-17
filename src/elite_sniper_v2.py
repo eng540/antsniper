@@ -2464,13 +2464,26 @@ class EliteSniperV2:
                 
                 # === FALLBACK: URL Navigation if buttons not found ===
                 if not navigated:
-                    worker_logger.warning("⚠️ DOM buttons not found - using URL fallback")
-                    # Use old method as fallback
-                    random_url = random.choice(month_urls)
+                    # BUGFIX: Don't navigate away if we're on captcha page
+                    # The captcha was already submitted via Enter key
+                    # Server will redirect if correct, or show error if wrong
                     try:
-                        page.goto(random_url, wait_until="domcontentloaded", timeout=15000)
+                        on_captcha = page.locator("input[name='captchaText']").count() > 0
                     except:
-                        worker_logger.warning("⚠️ Fallback navigation timeout")
+                        on_captcha = False
+                    
+                    if on_captcha:
+                        worker_logger.info("🛡️ On gate page - waiting for server response...")
+                        # Wait for server to process captcha submission
+                        time.sleep(2)
+                    else:
+                        # We're on calendar but buttons missing - use URL fallback
+                        worker_logger.warning("⚠️ DOM buttons not found - using URL fallback")
+                        random_url = random.choice(month_urls)
+                        try:
+                            page.goto(random_url, wait_until="domcontentloaded", timeout=15000)
+                        except:
+                            worker_logger.warning("⚠️ Fallback navigation timeout")
                 
                 # === STEP 5: BRIEF PAUSE (Heartbeat) ===
                 # Only sleep if NO slots were found
