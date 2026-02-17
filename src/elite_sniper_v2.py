@@ -1411,7 +1411,9 @@ class EliteSniperV2:
     
     def _run_single_session(self, browser: Browser, worker_id: int = 1):
         """
-        Run a single robust blocking session
+        Run a single robust blocking session with cyclic scanning pattern
+        
+        [RESTORED from asniper-main - Proven Working Version]
         """
         worker_logger = logging.getLogger(f"Worker-{worker_id}")
         
@@ -1425,23 +1427,78 @@ class EliteSniperV2:
         
         session.role = SessionRole.SCOUT
         
-        worker_logger.info(f"[START] Robust Single Session Mode")
+        worker_logger.info(f"[START] Cyclic Scanning Mode (Proven Working Pattern)")
         
         try:
-            # [PERSISTENT ARCHITECTURE UPGRADE]
-            # Enter the Settlement Loop (Infinite Patrol)
-            success = self._persistent_session_loop(page, session, worker_logger)
+            max_cycles = 1000  # Persistent runner
             
-            if success:
-                 worker_logger.info("🏆 Session completed with SUCCESS")
-                 return True
-            else:
-                 worker_logger.info("⏹️ Session ended without success")
-                 return False
-
+            for cycle in range(max_cycles):
+                if self.stop_event.is_set(): break
+                
+                # PAUSE CHECK (C2)
+                if self.paused.is_set():
+                    worker_logger.info("⏸️ Session PAUSED by C2")
+                    while self.paused.is_set() and not self.stop_event.is_set():
+                        time.sleep(1)
+                    worker_logger.info("▶️ Session RESUMED")
+                
+                worker_logger.info(f"🔄 [CYCLE {cycle+1}] Scanning...")
+                
+                try:
+                    # 1. GENERATE TARGETS
+                    month_urls = self.generate_month_urls()
+                    
+                    # 2. SCAN PHASE
+                    for url in month_urls:
+                        if self.stop_event.is_set(): break
+                        
+                        # Process Month (Returns True if slot found and booked)
+                        if self._process_month_page(page, session, url, worker_logger):
+                            return True  # SUCCESS!
+                        
+                        # CIRCUIT BREAKER: Fail Fast on Network Issues
+                        if getattr(session, 'consecutive_network_failures', 0) >= 2:
+                             worker_logger.warning("⚡ Circuit Breaker Triggered: Network Unstable. Resetting session...")
+                             break
+                        
+                        # Small delay between months
+                        time.sleep(random.uniform(1, 2))
+                    
+                    # 3. SLEEP PHASE
+                    sleep_time = self.get_sleep_interval()
+                    worker_logger.info(f"💤 Sleeping {sleep_time:.1f}s...")
+                    time.sleep(sleep_time)
+                    
+                    # 4. MAINTENANCE PHASE (GARBAGE COLLECTION)
+                    if session.age() > Config.SESSION_MAX_AGE or getattr(session, 'consecutive_network_failures', 0) >= 2:
+                        reason = "Age" if session.age() > Config.SESSION_MAX_AGE else "Network Instability"
+                        worker_logger.info(f"♻️ Session Reset triggered ({reason}) - Recreating Context...")
+                        
+                        # STRICT CLEANUP BEFORE REBIRTH
+                        try: 
+                            page.close()
+                            context.close()
+                        except: pass
+                        
+                        # FRESH CONTEXT
+                        context, page, session = self.create_context(browser, worker_id, proxy)
+                        self.current_page = page  # Update reference
+                        session.role = SessionRole.SCOUT
+                        
+                except Exception as cycle_error:
+                    worker_logger.error(f"⚠️ Cycle error: {cycle_error}")
+                    # Force reset on error to prevent zombie state
+                    try:
+                        page.close()
+                        context.close()
+                    except: pass
+                    context, page, session = self.create_context(browser, worker_id, proxy)
+                    self.current_page = page  # Update reference
+                    session.role = SessionRole.SCOUT
 
         except Exception as e:
             worker_logger.error(f"❌ Critical Session Error: {e}", exc_info=True)
+            return False
         finally:
             # ULTIMATE CLEANUP
             worker_logger.info("🧹 Final cleanup of single session...")
@@ -1449,6 +1506,8 @@ class EliteSniperV2:
                 page.close()
                 context.close()
             except: pass
+            
+        return False  # Completed all cycles without success
 
     def _analyze_page_state(self, page: Page, logger) -> str:
         """
@@ -1524,6 +1583,187 @@ class EliteSniperV2:
         except Exception as e:
             logger.warning(f"⚠️ Page state analysis error: {e}")
             return "UNKNOWN"
+
+    def _process_month_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
+        """
+        [RESTORED from asniper-main] Smart Month Page Handler with State Analysis
+        
+        Flow: Navigate → Analyze → Solve/Act → Verify → Loop/Exit
+        
+        Returns: True if booking successful, False to move to next month
+        """
+        try:
+            # A. ROBUST NAVIGATION with Retry Logic
+            logger.info(f"🌐 Navigating to: {url[:60]}...")
+            
+            max_nav_retries = 2
+            for nav_attempt in range(max_nav_retries):
+                try:
+                    page.goto(url, timeout=60000, wait_until="domcontentloaded")
+                    break  # Success!
+                except Exception as nav_e:
+                    logger.warning(f"⚠️ Navigation failed (Attempt {nav_attempt+1}/{max_nav_retries}): {nav_e}")
+                    
+                    if nav_attempt < max_nav_retries - 1:
+                        sleep_time = 5.0 * (nav_attempt + 1)
+                        logger.info(f"💤 Cooling down {sleep_time}s before retry...")
+                        time.sleep(sleep_time)
+                        continue
+                    else:
+                        logger.error(f"❌ Max navigation retries reached for {url}")
+                        if not hasattr(session, 'consecutive_network_failures'):
+                            session.consecutive_network_failures = 0
+                        session.consecutive_network_failures += 1
+                        return False
+            
+            session.current_url = url
+            session.touch()
+            if not hasattr(session, 'consecutive_network_failures'):
+                session.consecutive_network_failures = 0
+            session.consecutive_network_failures = 0  # Reset on success
+            self.global_stats.pages_loaded += 1
+            
+            # B. SMART CAPTCHA SOLVING LOOP (5 attempts per month - INDEPENDENT!)
+            max_attempts = 5
+            
+            for attempt in range(max_attempts):
+                # Analyze current page state
+                state = self._analyze_page_state(page, logger)
+                logger.info(f"🧐 Page State Analysis [{attempt+1}/{max_attempts}]: {state}")
+                
+                # STATE-BASED DECISION ENGINE
+                if state == "SLOTS_FOUND":
+                    # SUCCESS! Days with appointments found
+                    logger.critical("🎯 SUCCESS: Days with appointments detected!")
+                    
+                    # Find and click the first available day
+                    day_links = page.locator("a[href*='appointment_showDay']").all()
+                    if day_links:
+                        logger.critical(f"📅 FOUND {len(day_links)} DAYS AVAILABLE!")
+                        self.global_stats.days_found += len(day_links)
+                        
+                        target_day = day_links[0]
+                        day_href = target_day.get_attribute("href")
+                        
+                        if day_href:
+                            base_domain = self.base_url.split("/extern")[0]
+                            day_url = f"{base_domain}/{day_href}" if not day_href.startswith("http") else day_href
+                            return self._process_day_page(page, session, day_url, logger)
+                    
+                    return False
+                
+                elif state == "EMPTY_CALENDAR":
+                    # No appointments this month - move to next
+                    logger.info("📅 Calendar Empty. Exiting month to check next target in list.")
+                    return False
+                
+                elif state == "WRONG_CODE":
+                    # Captcha was wrong - retry (page already has new captcha)
+                    logger.warning(f"❌ Server said: 'Wrong captcha'. Retrying... [{attempt+1}/{max_attempts}]")
+                    self.global_stats.captchas_failed += 1
+                    # Continue to solve new captcha
+                    
+                elif state == "CAPTCHA":
+                    # Need to solve captcha
+                    logger.info(f"🔐 Captcha page detected. Solving... [{attempt+1}/{max_attempts}]")
+                    
+                else:
+                    # UNKNOWN state - try to solve anyway
+                    logger.warning(f"❓ Unknown page state. Attempting captcha solve...")
+                
+                # CAPTCHA SOLVING
+                session_age = session.age() if hasattr(session, 'age') else 0
+                success, code, status = self.solver.solve_from_page(page, f"GATE_{attempt+1}", session_age=session_age)
+                
+                # Check for BLACK CAPTCHA
+                if status in ["BLACK_IMAGE", "NO_IMAGE", "BLACKOUT"]:
+                    logger.critical("⛔ BLACK CAPTCHA DETECTED - SESSION POISONED!")
+                    logger.critical("⛔ IP may be flagged - entering 120s cooldown...")
+                    session.health = SessionHealth.POISONED
+                    time.sleep(120)
+                    return False
+                
+                # 8-char captcha means heavy throttling
+                if status == "AGING_8":
+                    logger.critical("🚨 8-char captcha - HEAVY THROTTLING! Entering deep sleep (120s)...")
+                    time.sleep(120)
+                    try:
+                        page.reload(wait_until="domcontentloaded")
+                    except:
+                        pass
+                    return False
+                
+                # OCR failed - reload for fresh captcha
+                if not success or not code:
+                    logger.warning(f"❌ OCR failed ({status}) - reloading page...")
+                    page.reload(wait_until="domcontentloaded", timeout=10000)
+                    time.sleep(1)
+                    continue
+                
+                # Submit the captcha
+                logger.info(f"📝 Submitting captcha: '{code}'")
+                self.solver.submit_captcha(page, "auto")
+                
+                # Wait for page response
+                try:
+                    page.wait_for_selector(
+                        "div.global-error, a[href*='appointment_showDay'], h2:has-text('Please select')",
+                        timeout=8000
+                    )
+                except:
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=5000)
+                    except:
+                        try:
+                            page.wait_for_load_state("domcontentloaded", timeout=3000)
+                        except:
+                            pass
+                
+                time.sleep(1.5)  # Buffer for page to stabilize
+                # Loop will analyze new state on next iteration
+            
+            # Exhausted all attempts - CLEAR EXIT!
+            logger.error(f"❌ Failed after {max_attempts} attempts - moving to next month")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Month page processing error: {e}")
+            return False
+
+    def _process_day_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
+        """
+        [RESTORED from asniper-main] Handle Day Page: Scan Slots → Book
+        """
+        try:
+            logger.info("📆 Analyzing Day Page...")
+            page.goto(url, timeout=20000, wait_until="domcontentloaded")
+            
+            # Find real slot links (showForm)
+            slot_links = page.locator("a.arrow[href*='appointment_showForm'], a[href*='appointment_showForm']").all()
+            if not slot_links:
+                logger.info("⚠️ Days shown but no slots active.")
+                return False
+                
+            logger.critical(f"⏰ {len(slot_links)} SLOTS FOUND! ENGAGING!")
+            self.global_stats.slots_found += len(slot_links)
+            
+            # Click first slot
+            target_slot = slot_links[0]
+            logger.info("🎯 Clicking first available slot...")
+            target_slot.click()
+            time.sleep(2)
+            
+            # Mark success (simplified - full booking flow needs more work)
+            logger.critical("🎉 Reached booking form!")
+            self.global_stats.success = True
+            
+            # TODO: Add full form filling and submission
+            # For now, we've proven we can reach this point!
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Day processing error: {e}")
+            return False
 
     def check_session_health(self, page: Page, session: SessionState, logger) -> bool:
         """
