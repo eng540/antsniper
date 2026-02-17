@@ -2385,33 +2385,91 @@ class EliteSniperV2:
                     worker_logger.warning("💀 Session Died - Exiting for restart...")
                     return False
                 
-                # === STEP 3: SCAN FOR SLOTS (PRIORITY INTERRUPT) ===
-                for selector in slot_selectors:
+                
+                # === STEP 3: SCAN FOR SLOTS (INTELLIGENT VERIFICATION) ===
+                # CRITICAL FIX: Distinguish between day availability and actual slots
+                # - appointment_showDay = Day that MAY have slots
+                # - appointment_showForm = REAL bookable slot
+                
+                # First, check for days with potential availability
+                day_links = page.locator("a.arrow[href*='appointment_showDay']").all()
+                
+                if day_links:
+                    worker_logger.info(f"📅 Found {len(day_links)} days with potential slots - verifying...")
+                    
+                    # Check each day for REAL slots
+                    for idx, day_link in enumerate(day_links):
+                        try:
+                            # Get day URL
+                            href = day_link.get_attribute("href")
+                            if href.startswith("http"):
+                                day_url = href
+                            else:
+                                path = href if href.startswith("/") else f"/{href}"
+                                day_url = f"https://service2.diplo.de{path}"
+                            
+                            worker_logger.info(f"🔍 Checking day {idx+1}/{len(day_links)}: {day_url}")
+                            
+                            # Navigate to day page
+                            self._inject_booking_script(page, day_url)
+                            time.sleep(1.5)
+                            
+                            # NOW check for REAL slots (appointment_showForm)
+                            slot_links = page.locator("a.arrow[href*='appointment_showForm']").all()
+                            
+                            if slot_links:
+                                # FOUND REAL SLOTS!
+                                worker_logger.critical(f"💎 REAL SLOTS DETECTED ({len(slot_links)})! IMMEDIATE BOOKING!")
+                                
+                                # Execute booking immediately
+                                result = self._handle_fast_booking(page, session, worker_logger)
+                                
+                                # Return immediately regardless of result
+                                if result:
+                                    return True
+                                else:
+                                    worker_logger.warning("⚠️ Booking attempt failed - restarting patrol")
+                                    return False
+                            else:
+                                worker_logger.info(f"❌ Day {idx+1} has no active slots (already booked)")
+                                # Go back to month page for next day
+                                page.go_back()
+                                time.sleep(1)
+                                
+                        except Exception as e:
+                            worker_logger.error(f"⚠️ Error checking day {idx+1}: {e}")
+                            # Try to recover - go back to month page
+                            try:
+                                page.go_back()
+                                time.sleep(1)
+                            except:
+                                pass
+                    
+                    # Checked all days, no real slots found
+                    worker_logger.info("📊 All days checked - no active slots available")
+                
+                # === OLD FALLBACK: Check for alternative slot patterns ===
+                # (Keep for compatibility with different page layouts)
+                for selector in ["td.buchbar a", "a[href*='appointment_showForm']"]:
                     elements = page.locator(selector).all()
                     if elements:
-                        # !!! IMMEDIATE INTERRUPT - NO CONTINUATION !!!
-                        worker_logger.critical(f"💎 SLOTS DETECTED ({len(elements)})! IMMEDIATE BOOKING!")
+                        worker_logger.critical(f"💎 SLOTS DETECTED via fallback ({len(elements)})! IMMEDIATE BOOKING!")
                         
                         target_element = elements[0]
                         href = target_element.get_attribute("href")
                         
-                        # FIX: Ensure proper URL construction with slash separator
                         if href.startswith("http"):
                             full_url = href
                         else:
-                            # Add leading slash if href doesn't have one
                             path = href if href.startswith("/") else f"/{href}"
                             full_url = f"https://service2.diplo.de{path}"
                         
-                        # Execute booking immediately
                         self._inject_booking_script(page, full_url)
                         result = self._handle_fast_booking(page, session, worker_logger)
                         
-                        # Return immediately regardless of result
                         if result:
-                            return True  # Success!
+                            return True
                         else:
-                            # Booking failed, but don't continue loop - return to restart
                             worker_logger.warning("⚠️ Booking attempt failed - restarting patrol")
                             return False
                 
