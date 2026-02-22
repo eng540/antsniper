@@ -5,13 +5,10 @@ Integrates best features from:
 - Elite Sniper: Multi-session architecture, Scout/Attacker pattern, Scheduled activation
 - KingSniperV12: State Machine, Soft Recovery, Safe Captcha Check, Debug utilities
 
-Architecture:
-- 3 Parallel Sessions (1 Scout + 2 Attackers)
-- 24/7 Operation with 2:00 AM Aden time activation
-- Intelligent session lifecycle management
-- Production-grade error handling and recovery
-
-Version: 2.0.0
+Refactored for:
+- Smart Synchronized Strike (DOM Awareness)
+- Anti-Zombie memory management
+- 100% Local OCR logic integration
 """
 
 import time
@@ -28,7 +25,6 @@ from dataclasses import asdict
 import pytz
 from playwright.sync_api import sync_playwright, Page, BrowserContext, Browser
 
-# Internal imports
 try:
     from .config import Config
 except ImportError:
@@ -44,7 +40,6 @@ from .debug_utils import DebugManager
 from .page_flow import PageFlowDetector
 from .diagnostic import ForensicMonitor, OperationTracker, TelegramReporter
 
-# Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s',
@@ -58,14 +53,9 @@ logger = logging.getLogger("EliteSniperV2")
 
 
 class EliteSniperV2:
-    """
-    Production-Grade Multi-Session Appointment Booking System
-    """
-    
-    VERSION = "2.0.0"
+    VERSION = "2.0.1-SYNC"
     
     def __init__(self, run_mode: str = "AUTO"):
-        """Initialize Elite Sniper v2.0"""
         self.run_mode = run_mode
         
         logger.info("=" * 70)
@@ -73,24 +63,18 @@ class EliteSniperV2:
         logger.info(f"[MODE] Running Mode: {self.run_mode}")
         logger.info("=" * 70)
         
-        # Validate configuration
         self._validate_config()
         
-        # Session management
         self.session_id = f"elite_v2_{int(time.time())}_{random.randint(1000, 9999)}"
         self.start_time = datetime.datetime.now()
         
-        # System state
         self.system_state = SystemState.STANDBY
-        self.stop_event = Event()      # Global kill switch
-        self.slot_event = Event()      # Scout → Attacker signal
-        self.target_url: Optional[str] = None  # Discovered appointment URL
-        self.lock = Lock()              # Thread-safe coordination
-        self.screenshot_requested = Event()  # Flag for screenshot request
+        self.stop_event = Event()      
+        self.slot_event = Event()      
+        self.target_url: Optional[str] = None  
+        self.lock = Lock()              
+        self.screenshot_requested = Event()  
 
-        
-        
-        # Initialize Telegram C2 FIRST so we can pass it
         try:
             from .telegram_c2 import TelegramCommander
             self.c2 = TelegramCommander(bot_instance=self)
@@ -99,67 +83,48 @@ class EliteSniperV2:
             logger.error(f"[C2] Failed to start Telegram Commander: {e}")
             self.c2 = None
             
-        # Components
-        # EXECUTION MODES: AUTO, MANUAL, HYBRID
         self.mode = Config.EXECUTION_MODE
         logger.info(f"[MODE] Execution Strategy: {self.mode}")
         
-        # Pass C2 to solver
         self.solver = EnhancedCaptchaSolver(mode=self.mode, c2_instance=self.c2)
         
         self.debug_manager = DebugManager(self.session_id, Config.EVIDENCE_DIR)
         self.incident_manager = IncidentManager()
         self.ntp_sync = NTPTimeSync(Config.NTP_SERVERS, Config.NTP_SYNC_INTERVAL)
-        self.page_flow = PageFlowDetector()  # For accurate page type detection
-        self.paused = Event() # Pause control
+        self.page_flow = PageFlowDetector()  
+        self.paused = Event() 
         
-        # Forensic Diagnostic System
         self.monitor = ForensicMonitor(base_dir="debug", enabled=True)
         self.tracker = OperationTracker()
         self.telegram_reporter = TelegramReporter(enabled=True)
         
-        # Configuration
         self.base_url = self._prepare_base_url(Config.TARGET_URL)
         self.timezone = pytz.timezone(Config.TIMEZONE)
         
-        # User agents for rotation
         self.user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         ]
         
-        # Proxies (optional)
         self.proxies = self._load_proxies()
-        
-        # Global statistics
         self.global_stats = SessionStats()
         
-        # Start background NTP sync
         self.ntp_sync.start_background_sync()
         
         logger.info(f"[ID] Session ID: {self.session_id}")
         logger.info(f"[URL] Base URL: {self.base_url[:60]}...")
         logger.info(f"[TZ] Timezone: {self.timezone}")
-        logger.info(f"[NTP] NTP Offset: {self.ntp_sync.offset:.4f}s")
-        logger.info(f"[DIR] Evidence Dir: {self.debug_manager.session_dir}")
-        logger.info(f"[PROXY] Proxies: {len([p for p in self.proxies if p])} configured")
         logger.info(f"[OK] Initialization complete")
     
-    # ==================== Configuration ====================
-    
     def request_screenshot(self):
-        """Set flag to request screenshot on next loop cycle"""
         self.screenshot_requested.set()
 
-    # ==================== C2 Interface Methods ====================
     def set_mode(self, new_mode: str): 
-        """Update execution mode correctly""" 
         valid_modes = ["AUTO", "MANUAL", "HYBRID"] 
         if new_mode.upper() in valid_modes: 
             self.mode = new_mode.upper() 
-            self.run_mode = new_mode.upper() # Sync both
-            # Update solver mode as well 
+            self.run_mode = new_mode.upper() 
             if hasattr(self, 'solver'): 
                 self.solver.mode = self.mode 
             logger.info(f"[MODE] Switched to {self.mode}") 
@@ -167,22 +132,18 @@ class EliteSniperV2:
         return False
 
     def pause_execution(self): 
-        """Pause the scanning loop""" 
         if not self.paused.is_set(): 
             self.paused.set() 
             logger.info("⏸️ System PAUSED by user")
 
     def resume_execution(self): 
-        """Resume the scanning loop""" 
         if self.paused.is_set(): 
             self.paused.clear() 
             logger.info("▶️ System RESUMED by user")
 
     def get_status_report(self) -> str:
-        """Generate status report for C2"""
         stats = self.global_stats
         status = "🟢 Running" if not self.paused.is_set() else "⏸ Paused"
-        
         return (
             f"📊 <b>System Status</b>\n"
             f"Mode: {self.run_mode}\n"
@@ -195,11 +156,7 @@ class EliteSniperV2:
         )
     
     def force_screenshot(self) -> Optional[str]:
-        """Take immediate screenshot for C2"""
         try:
-            # But we can store a reference or use a shared variable
-            # IMPROVEMENT: _run_single_session writes 'self.current_page'
-            
             if hasattr(self, 'current_page') and self.current_page:
                 try:
                     timestamp = int(time.time())
@@ -215,63 +172,35 @@ class EliteSniperV2:
             return None
 
     def _validate_config(self):
-        """Validate required configuration"""
-        required = [
-            'TARGET_URL', 'LAST_NAME', 'FIRST_NAME', 
-            'EMAIL', 'PASSPORT', 'PHONE'
-        ]
-        
+        required = ['TARGET_URL', 'LAST_NAME', 'FIRST_NAME', 'EMAIL', 'PASSPORT', 'PHONE']
         missing = [field for field in required if not getattr(Config, field, None)]
-        
         if missing:
             raise ValueError(f"[ERR] Missing configuration: {', '.join(missing)}")
-        
         logger.info("[OK] Configuration validated")
     
     def cleanup(self):
-        """
-        Robust resource cleanup (Anti-Zombie)
-        Ensures all threads, browsers, and syncs are terminated
-        """
         logger.info("[CLEANUP] Initiating robust shutdown...")
-        
-        # 1. Signal Stop
         self.stop_event.set()
-        
-        # 2. Stop NTP
         try:
             if hasattr(self, 'ntp_sync'):
                 self.ntp_sync.stop_background_sync()
         except: pass
-        
-        # 3. Close Browser (if managed here)
-        # Note: In current architecture, browser is passed IN, but we should close contexts
-        # The main run method handles browser.close(), but we can add safety checks here
-        
-        # 4. Stop C2
         try:
             if hasattr(self, 'c2') and self.c2:
                 self.c2.stop()
         except: pass
-        
         logger.info("[CLEANUP] Resources released")
     
     def _prepare_base_url(self, url: str) -> str:
-        """Prepare base URL with locale"""
         if "request_locale" not in url:
             separator = "&" if "?" in url else "?"
             return f"{url}{separator}request_locale=en"
         return url
     
     def _load_proxies(self) -> List[Optional[str]]:
-        """Load proxies from config or file"""
         proxies = []
-        
-        # From Config.PROXIES
         if hasattr(Config, 'PROXIES') and Config.PROXIES:
             proxies.extend([p for p in Config.PROXIES if p])
-        
-        # From proxies.txt
         try:
             if os.path.exists("proxies.txt"):
                 with open("proxies.txt") as f:
@@ -279,170 +208,86 @@ class EliteSniperV2:
                     proxies.extend(file_proxies)
         except Exception as e:
             logger.warning(f"⚠️ Failed to load proxies.txt: {e}")
-        
-        # Ensure we have at least 3 slots (None = direct connection)
         while len(proxies) < 3:
             proxies.append(None)
-        
-        return proxies[:3]  # Only use first 3
-    
-    # ==================== Time Management ====================
+        return proxies[:3] 
     
     def get_current_time_aden(self) -> datetime.datetime:
-        """Get current time in Aden timezone with NTP correction"""
         corrected_utc = self.ntp_sync.get_corrected_time()
         aden_time = corrected_utc.replace(tzinfo=pytz.UTC).astimezone(self.timezone)
         return aden_time
     
     def is_pre_attack(self) -> bool:
-        """Check if in pre-attack window (1:59:30 - 1:59:59 Aden time)"""
         now = self.get_current_time_aden()
         return (now.hour == 1 and 
                 now.minute == Config.PRE_ATTACK_MINUTE and 
                 now.second >= Config.PRE_ATTACK_SECOND)
     
     def is_attack_time(self) -> bool:
-        """Check if in Golden Hour (2:00:00 - 3:00:00 Aden time)"""
         now = self.get_current_time_aden()
-        # Full hour attack window (2:00 - 2:59)
         return now.hour == Config.ATTACK_HOUR
     
     def get_sleep_interval(self) -> float:
-        """
-        Calculate dynamic sleep interval based on current mode
-        
-        Strategies:
-        1. Golden Hour (Attack): Sleep 30s (Persistent Session Strategy)
-        2. Pre-Attack: Sleep 0.5s (Ready State)
-        3. Patrol (Normal): Sleep until next 20-minute mark (:00, :20, :40)
-        """
         if self.is_attack_time():
-            # Persistent Session Strategy: Wait 30s inside the session
             return 30.0
-            
         elif self.is_pre_attack():
             return Config.PRE_ATTACK_SLEEP
-            
         else:
             now = self.get_current_time_aden()
-            
-            # WARMUP (1:45 - 2:00)
             if now.hour == 1 and now.minute >= 45:
                 return Config.WARMUP_SLEEP
-            
-            # PATROL: 20-minute alignment logic
-            # Calculate next target minute (0, 20, 40, 60)
             current_minute = now.minute
             current_second = now.second
-            
-            if current_minute < 20:
-                target_minute = 20
-            elif current_minute < 40:
-                target_minute = 40
-            else:
-                target_minute = 60 # Next hour :00
-                
+            if current_minute < 20: target_minute = 20
+            elif current_minute < 40: target_minute = 40
+            else: target_minute = 60 
             minutes_to_wait = target_minute - current_minute - 1
             seconds_to_wait = 60 - current_second
             total_wait = (minutes_to_wait * 60) + seconds_to_wait
-            
-            # Subtract buffer (5 seconds) to be ready slightly before
             final_wait = max(10.0, total_wait - 5.0)
-            
-            logger.info(f"⏳ [SMART SCHEDULE] Aligning to :{(target_minute%60):02d} - Sleeping {final_wait:.1f}s")
             return final_wait
     
     def get_mode(self) -> str:
-        """Get current operational mode"""
-        if self.is_attack_time():
-            return "ATTACK"
-        elif self.is_pre_attack():
-            return "PRE_ATTACK"
+        if self.is_attack_time(): return "ATTACK"
+        elif self.is_pre_attack(): return "PRE_ATTACK"
         else:
             now = self.get_current_time_aden()
-            if now.hour == 1 and now.minute >= 45:
-                return "WARMUP"
+            if now.hour == 1 and now.minute >= 45: return "WARMUP"
             return "PATROL"
     
-    # ==================== Session Management ====================
-    
-    def create_context(
-        self, 
-        browser: Browser, 
-        worker_id: int,
-        proxy: Optional[str] = None
-    ) -> Tuple[BrowserContext, Page, SessionState]:
-        """
-        Create browser context with session state
-        
-        Args:
-            browser: Playwright browser instance
-            worker_id: Worker ID (1-3)
-            proxy: Optional proxy server
-        
-        Returns:
-            (context, page, session_state)
-        """
+    def create_context(self, browser: Browser, worker_id: int, proxy: Optional[str] = None) -> Tuple[BrowserContext, Page, SessionState]:
         try:
-            # Determine role
             role = SessionRole.SCOUT if worker_id == 1 else SessionRole.ATTACKER
-            
-            # Select user agent
             user_agent = random.choice(self.user_agents)
-            
-            # Randomize viewport slightly for fingerprint variation
             viewport_width = 1366 + random.randint(0, 50)
             viewport_height = 768 + random.randint(0, 30)
             
-            # Context arguments
-            # Enable video recording for forensic analysis
             context_options = {
                 "user_agent": user_agent,
                 "viewport": {"width": viewport_width, "height": viewport_height},
-                "locale": "en-US", # Keep original locale
-                "timezone_id": "Asia/Aden", # Keep original timezone
+                "locale": "en-US", 
+                "timezone_id": "Asia/Aden", 
                 "ignore_https_errors": True,
                 "record_video_dir": "debug/videos",
                 "record_video_size": {"width": 1280, "height": 720}
             }
             
-            # Add proxy if provided
             if proxy:
                 context_options["proxy"] = {"server": proxy}
-                logger.info(f"[PROXY] [W{worker_id}] Using proxy: {proxy[:30]}...")
             
-            # Create context
             context = browser.new_context(**context_options)
             page = context.new_page()
             
-            # Anti-detection + Keep-Alive script
             page.add_init_script(f"""
-                // Hide webdriver
-                Object.defineProperty(navigator, 'webdriver', {{ 
-                    get: () => undefined 
-                }});
-                
-                // Override plugins
-                Object.defineProperty(navigator, 'plugins', {{
-                    get: () => [1, 2, 3, 4, 5]
-                }});
-                
-                // Override languages
-                Object.defineProperty(navigator, 'languages', {{
-                    get: () => ['en-US', 'en']
-                }});
-                
-                // Session keep-alive heartbeat (every {Config.HEARTBEAT_INTERVAL}s)
-                setInterval(() => {{
-                    fetch(location.href, {{ method: 'HEAD' }}).catch(()=>{{}});
-                }}, {Config.HEARTBEAT_INTERVAL * 1000});
+                Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+                Object.defineProperty(navigator, 'plugins', {{ get: () => [1, 2, 3, 4, 5] }});
+                Object.defineProperty(navigator, 'languages', {{ get: () => ['en-US', 'en'] }});
+                setInterval(() => {{ fetch(location.href, {{ method: 'HEAD' }}).catch(()=>{{}}); }}, {Config.HEARTBEAT_INTERVAL * 1000});
             """)
             
-            # Timeouts
             context.set_default_timeout(45000)
             context.set_default_navigation_timeout(120000)
             
-            # Resource blocking for performance
             def route_handler(route):
                 resource_type = route.request.resource_type
                 if resource_type in ["image", "media", "font", "stylesheet"]:
@@ -452,18 +297,15 @@ class EliteSniperV2:
             
             page.route("**/*", route_handler)
             
-            # Create session state with config limits
             session_state = SessionState(
                 session_id=f"{self.session_id}_w{worker_id}",
                 role=role,
                 worker_id=worker_id,
-                max_age=300,  # FORCE 5 MINUTES (Essential for multi-month sequential scan)
+                max_age=300,  
                 max_idle=Config.SESSION_MAX_IDLE,
                 max_failures=Config.MAX_CONSECUTIVE_ERRORS,
                 max_captcha_attempts=Config.MAX_CAPTCHA_ATTEMPTS
             )
-            
-            logger.info(f"[CTX] [W{worker_id}] Context created - Role: {role.value}")
             
             with self.lock:
                 self.global_stats.rebirths += 1
@@ -474,224 +316,60 @@ class EliteSniperV2:
             logger.error(f"[ERR] [W{worker_id}] Context creation failed: {e}")
             raise
     
-    def validate_session_health(
-        self, 
-        page: Page, 
-        session: SessionState, 
-        location: str = "UNKNOWN"
-    ) -> bool:
-        """
-        Validate session health with strict kill rules
-        
-        Returns:
-            True if session is healthy, False if should be terminated
-        """
+    def validate_session_health(self, page: Page, session: SessionState, location: str = "UNKNOWN") -> bool:
         worker_id = session.worker_id
         
-        # Rule 1: Session expired (age > 60s or idle > 15s)
         if session.is_expired():
-            age = session.age()
-            idle = session.idle_time()
-            logger.critical(
-                f"[EXP] [W{worker_id}][{location}] "
-                f"Session EXPIRED - Age: {age:.1f}s, Idle: {idle:.1f}s"
-            )
-            self.incident_manager.create_incident(
-                session.session_id, IncidentType.SESSION_EXPIRED,
-                IncidentSeverity.CRITICAL,
-                f"Session expired: age={age:.1f}s, idle={idle:.1f}s"
-            )
+            self.incident_manager.create_incident(session.session_id, IncidentType.SESSION_EXPIRED, IncidentSeverity.CRITICAL, "Session expired")
             return False
         
-        # Rule 2: Too many failures
         if session.should_terminate():
-            logger.critical(
-                f"💀 [W{worker_id}][{location}] "
-                f"Session POISONED - Failures: {session.failures}"
-            )
-            self.incident_manager.create_incident(
-                session.session_id, IncidentType.SESSION_POISONED,
-                IncidentSeverity.CRITICAL,
-                f"Session poisoned: failures={session.failures}"
-            )
+            self.incident_manager.create_incident(session.session_id, IncidentType.SESSION_POISONED, IncidentSeverity.CRITICAL, "Session poisoned")
             return False
         
-        # Rule 3: Double captcha detection (captcha appears twice in same flow)
         if session.captcha_solved:
             has_captcha, _ = self.solver.safe_captcha_check(page, location)
             if has_captcha:
-                logger.critical(
-                    f"💀 [W{worker_id}][{location}] "
-                    f"DOUBLE CAPTCHA detected - Session INVALID"
-                )
                 session.health = SessionHealth.POISONED
-                self.incident_manager.create_incident(
-                    session.session_id, IncidentType.DOUBLE_CAPTCHA,
-                    IncidentSeverity.CRITICAL,
-                    "Double captcha in same flow - session poisoned"
-                )
+                self.incident_manager.create_incident(session.session_id, IncidentType.DOUBLE_CAPTCHA, IncidentSeverity.CRITICAL, "Double captcha")
                 return False
         
-        # Rule 4: Silent rejection (form still visible after submit)
         if location == "POST_SUBMIT":
             try:
                 if page.locator("input[name='lastname']").count() > 0:
-                    logger.critical(
-                        f"🔁 [W{worker_id}][{location}] "
-                        f"Silent rejection - Form reappeared"
-                    )
-                    self.incident_manager.create_incident(
-                        session.session_id, IncidentType.FORM_REJECTED,
-                        IncidentSeverity.ERROR,
-                        "Form reappeared after submit - silent rejection"
-                    )
                     return False
-            except:
-                pass
+            except: pass
         
-        # Rule 5: Bounce detection (month captcha in form view)
         if location == "FORM":
             try:
                 if page.locator("form#appointment_captcha_month").count() > 0:
-                    logger.critical(
-                        f"↩️ [W{worker_id}][{location}] "
-                        f"Bounced to month captcha"
-                    )
                     return False
-            except:
-                pass
+            except: pass
         
-        # Session is healthy
         session.touch()
         return True
     
-    def soft_recovery(self, session: SessionState, reason: str):
-        """
-        Soft recovery without full context recreation
-        From KingSniperV12
-        """
-        logger.info(f"🔄 [W{session.worker_id}] Soft recovery: {reason}")
-        
-        # Reset counters
-        session.consecutive_errors = 0
-        session.failures = max(0, session.failures - 1)  # Forgive one failure
-        
-        # Update health
-        if session.health == SessionHealth.DEGRADED:
-            session.health = SessionHealth.WARNING
-        elif session.health == SessionHealth.WARNING:
-            session.health = SessionHealth.CLEAN
-        
-        session.touch()
-        
-        logger.info(f"✅ [W{session.worker_id}] Soft recovery completed")
-    
-    # ==================== Navigation & Form Filling ====================
-    
     def generate_month_urls(self) -> List[str]:
-        """Generate priority month URLs - STRICT SEQUENTIAL ORDER [2, 3, 4, 5]"""
         try:
             today = datetime.datetime.now().date()
-            # Ensure base URL is clean
             base_clean = self.base_url.split("&dateStr=")[0] if "&dateStr=" in self.base_url else self.base_url
-            
             urls = []
-            # MANDATORY ORDER: Month 4, 5, 2, 3 (Focus on Aprile/May first as requested)
-            # Scan April, May, February, March sequentially
             priority_offsets = [4, 5, 2, 3] 
             
             for offset in priority_offsets:
                 future_date = today + datetime.timedelta(days=30 * offset)
-                # Set to 15th to ensure we land in the middle of the target month
                 date_str = f"15.{future_date.month:02d}.{future_date.year}" 
                 url = f"{base_clean}&dateStr={date_str}"
                 urls.append(url)
-            
-            logger.info(f"📋 Generated {len(urls)} month URLs: [4, 5, 2, 3] months ahead")
             return urls
-            
         except Exception as e:
-            logger.error(f"❌ Month URL generation failed: {e}")
             return []
     
-    def fast_inject(self, page: Page, selector: str, value: str) -> bool:
-        """
-        Inject value into form field using Playwright native methods first,
-        then JavaScript fallback for reliability.
-        """
-        try:
-            locator = page.locator(selector)
-            if locator.count() == 0:
-                logger.warning(f"[INJECT] Selector not found: {selector}")
-                return False
-            
-            # Method 1: Use Playwright's native fill() - most reliable
-            try:
-                locator.first.fill(value, timeout=2000)
-                logger.debug(f"[INJECT] Filled via Playwright: {selector}")
-                return True
-            except Exception as e1:
-                logger.debug(f"[INJECT] Playwright fill failed for {selector}: {e1}")
-            
-            # Method 2: Click then type
-            try:
-                locator.first.click(timeout=1000)
-                locator.first.fill(value, timeout=2000)
-                return True
-            except Exception as e2:
-                logger.debug(f"[INJECT] Click+fill failed for {selector}: {e2}")
-            
-            # Method 3: JavaScript injection as fallback
-            try:
-                escaped_value = value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
-                page.evaluate(f"""
-                    const el = document.querySelector("{selector}");
-                    if(el) {{ 
-                        el.value = "{escaped_value}"; 
-                        el.dispatchEvent(new Event('input', {{ bubbles: true }})); 
-                        el.dispatchEvent(new Event('change', {{ bubbles: true }})); 
-                        el.dispatchEvent(new Event('blur', {{ bubbles: true }})); 
-                    }}
-                """)
-                logger.debug(f"[INJECT] Filled via JS: {selector}")
-                return True
-            except Exception as e3:
-                logger.warning(f"[INJECT] JS injection failed for {selector}: {e3}")
-            
-            return False
-            
-        except Exception as e:
-            logger.warning(f"[INJECT] All methods failed for {selector}: {e}")
-            return False
-    
-    def find_input_id_by_label(self, page: Page, label_text: str) -> Optional[str]:
-        """Find input ID by label text"""
-        try:
-            return page.evaluate(f"""
-                () => {{
-                    const labels = Array.from(document.querySelectorAll('label'));
-                    const target = labels.find(l => l.innerText.toLowerCase().includes("{label_text.lower()}"));
-                    return target ? target.getAttribute('for') : null;
-                }}
-            """)
-        except:
-            return None
-    
     def select_category_by_value(self, page: Page) -> bool:
-        """
-        Smart Targeting: Select category using keyword priority search.
-        Scans dropdown options for TARGET_KEYWORDS in order of priority.
-        First match wins - immediately selects and triggers change events.
-        """
         try:
-            # Find all select elements
             selects = page.locator("select").all()
+            if not selects: return False
             
-            if not selects:
-                logger.warning("[CATEGORY] No select elements found on page")
-                return False
-            
-            # Collect all options from all selects with their metadata
             all_options = []
             for select in selects:
                 try:
@@ -699,31 +377,19 @@ class EliteSniperV2:
                     for option in options:
                         text = option.inner_text().strip()
                         value = option.get_attribute("value")
-                        if text and value:  # Skip empty options
+                        if text and value:
                             all_options.append({
-                                "select": select,
-                                "option": option,
-                                "text": text,
-                                "text_lower": text.lower(),
-                                "value": value
+                                "select": select, "option": option,
+                                "text": text, "text_lower": text.lower(), "value": value
                             })
-                except Exception:
-                    continue
+                except Exception: continue
             
-            logger.info(f"[CATEGORY] Found {len(all_options)} dropdown options to scan")
-            
-            # Priority-based keyword search
             for priority, keyword in enumerate(Config.TARGET_KEYWORDS, start=1):
                 keyword_lower = keyword.lower()
-                
                 for opt in all_options:
                     if keyword_lower in opt["text_lower"]:
-                        # MATCH FOUND! Select immediately
                         try:
                             opt["select"].select_option(value=opt["value"])
-                            logger.info(f"[CATEGORY] Priority {priority} MATCH: '{keyword}' -> '{opt['text']}' (value={opt['value']})")
-                            
-                            # Trigger change and input events for server-side detection
                             page.evaluate("""
                                 const selects = document.querySelectorAll('select');
                                 selects.forEach(s => {
@@ -732,22 +398,13 @@ class EliteSniperV2:
                                 });
                             """)
                             return True
-                        except Exception as e:
-                            logger.warning(f"[CATEGORY] Selection failed for '{opt['text']}': {e}")
-                            continue
+                        except Exception: continue
             
-            # No keyword match found - fallback to 2nd option (Index 1)
-            logger.warning("[CATEGORY] No keyword match found, using fallback (Option 2)")
-            
-            # Filter out empty/placeholder options
             valid_options = [opt for opt in all_options if opt["value"]]
-            
             if len(valid_options) >= 2:
-                fallback_opt = valid_options[1] # Index 1 is the second option
+                fallback_opt = valid_options[1] 
                 try:
                     fallback_opt["select"].select_option(value=fallback_opt["value"])
-                    logger.info(f"[CATEGORY] Fallback selected: '{fallback_opt['text']}' (value={fallback_opt['value']})")
-                    
                     page.evaluate("""
                         const selects = document.querySelectorAll('select');
                         selects.forEach(s => {
@@ -756,1124 +413,194 @@ class EliteSniperV2:
                         });
                     """)
                     return True
-                except Exception as e:
-                    logger.warning(f"[CATEGORY] Fallback selection failed: {e}")
-            else:
-                logger.warning("[CATEGORY] Not enough options for fallback selection")
-            
+                except Exception: pass
             return False
-            
-        except Exception as e:
-            logger.warning(f"[CATEGORY] Smart targeting error: {e}")
+        except Exception:
             return False
-    
-    def fill_booking_form(self, page: Page, session: SessionState) -> bool:
-        """
-        Fill the booking form with user data
-        Uses Surgeon's Injection for reliability
-        """
-        worker_id = session.worker_id
-        logger.info(f"📝 [W{worker_id}] Filling booking form...")
-        
+
+    def _fill_booking_form(self, page: Page, session: SessionState, worker_logger) -> bool:
         try:
-            # 1. Standard Fields
-            self.fast_inject(page, "input[name='lastname']", Config.LAST_NAME)
-            self.fast_inject(page, "input[name='firstname']", Config.FIRST_NAME)
-            self.fast_inject(page, "input[name='email']", Config.EMAIL)
-            
-            # Email repeat (try both variants)
-            if not self.fast_inject(page, "input[name='emailrepeat']", Config.EMAIL):
-                self.fast_inject(page, "input[name='emailRepeat']", Config.EMAIL)
-            
-            # 2. Dynamic Fields (Passport, Phone)
-            phone_value = Config.PHONE.replace("+", "00").strip()
-            
-            # Try finding by label first
-            passport_id = self.find_input_id_by_label(page, "Passport")
-            if passport_id:
-                self.fast_inject(page, f"#{passport_id}", Config.PASSPORT)
-            else:
-                self.fast_inject(page, "input[name='fields[0].content']", Config.PASSPORT)
-            
-            phone_id = self.find_input_id_by_label(page, "Telephone")
-            if phone_id:
-                self.fast_inject(page, f"#{phone_id}", phone_value)
-            else:
-                self.fast_inject(page, "input[name='fields[1].content']", phone_value)
-            
-            # 3. Category Selection
-            self.select_category_by_value(page)
-            
-            with self.lock:
-                self.global_stats.forms_filled += 1
-            
-            # Save debug evidence
-            self.debug_manager.save_debug_html(page, "form_filled", worker_id)
-            
-            logger.info(f"✅ [W{worker_id}] Form filled successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ [W{worker_id}] Form fill error: {e}")
-            return False
-    
-    def submit_form(self, page: Page, session: SessionState) -> bool:
-        """
-        AGGRESSIVE FORM SUBMISSION - NO SESSION CHECK!
-        
-        CRITICAL: When we reach this point, we HAVE the slot and MUST submit.
-        Session validation would kill our chance - SKIP IT!
-        
-        Uses hybrid approach: Enter on captcha + Click submit button
-        """
-        worker_id = session.worker_id
-        logger.info(f"[W{worker_id}] === AGGRESSIVE SUBMIT STARTED ===")
-        
-        # DRY RUN CHECK
-        if Config.DRY_RUN:
-            logger.warning(f"🛑 [W{worker_id}] [DRY_RUN] Skipping actual submission!")
-            logger.info(f"[W{worker_id}] [DRY_RUN] Taking proof of concept screenshot...")
-            
-            # Save evidence
-            self.debug_manager.save_critical_screenshot(page, "DRY_RUN_SUCCESS", worker_id)
-            self.debug_manager.save_debug_html(page, "DRY_RUN_SUCCESS", worker_id)
-            
-            logger.info(f"[W{worker_id}] [DRY_RUN] Simulating successful booking...")
-            
-            # Simulate success state
-            with self.lock:
-                self.global_stats.success = True
-            self.stop_event.set()
-            return True
-        
-        max_attempts = 15  # Increased retries
-        
-        for attempt in range(1, max_attempts + 1):
-            try:
-                # ===============================================
-                # CRITICAL: DO NOT CHECK SESSION HEALTH!
-                # We have the slot, we MUST try to submit anyway
-                # ===============================================
-                
-                # Method 1: Check if captcha input exists and press Enter
-                captcha_input = page.locator("input[name='captchaText']").first
-                if captcha_input.is_visible(timeout=1000):
-                    # Focus and press Enter on captcha field
-                    captcha_input.focus()
-                    page.keyboard.press("Enter")
-                    logger.info(f"[W{worker_id}] [SUBMIT {attempt}] Pressed Enter on captcha field")
-                    
-                    # Wait briefly for response
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=3000)
-                    except:
-                        pass
-                    
-                    # Check result immediately
-                    if self._check_submission_success(page, worker_id):
-                        return True
-                    
-                    # Check if still on form (silent reject)
-                    if self._is_on_form_page(page):
-                        logger.warning(f"[W{worker_id}] [SUBMIT {attempt}] Still on form - trying click...")
-                
-                # Method 2: Click submit button directly
-                submit_selectors = [
-                    "#appointment_newAppointmentForm_appointment_addAppointment",
-                    "input[name='action:appointment_addAppointment']",
-                    "input[value='Submit']",
-                    "input[type='submit'][value='Submit']",
-                ]
-                
-                for selector in submit_selectors:
-                    try:
-                        btn = page.locator(selector).first
-                        if btn.is_visible(timeout=500):
-                            btn.click(timeout=2000)
-                            logger.info(f"[W{worker_id}] [SUBMIT {attempt}] Clicked: {selector}")
-                            
-                            try:
-                                page.wait_for_load_state("networkidle", timeout=3000)
-                            except:
-                                pass
-                            
-                            if self._check_submission_success(page, worker_id):
-                                return True
-                            break
-                    except:
-                        continue
-                
-                # Method 3: JavaScript native submit (FACT-BASED TARGETING)
-                try:
-                    # Submit SPECIFIC form ID verified from RK-Termin form.html
-                    logger.info(f"[W{worker_id}] [SUBMIT {attempt}] JS form.submit() targeting 'appointment_newAppointmentForm'...")
-                    page.evaluate("""
-                        const form = document.getElementById('appointment_newAppointmentForm');
-                        if(form) {
-                            // FACT: The HTML checkKey function explicitly sets this action
-                            form.action = "extern/appointment_addAppointment.do"; 
-                            form.submit();
-                        } else {
-                            // Fallback to name if ID fails
-                            document.getElementsByName('appointment_newAppointmentForm')[0]?.submit();
-                        }
-                    """)
-                    
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=3000)
-                    except:
-                        pass
-                    
-                    if self._check_submission_success(page, worker_id):
-                        return True
-                except Exception as e:
-                    logger.warning(f"[W{worker_id}] [SUBMIT {attempt}] JS Submit error: {e}")
-                
-                # Check for captcha errors (need new captcha)
-                content = page.content().lower()
-                if "incorrect" in content or "wrong" in content or "falsch" in content:
-                    logger.warning(f"[W{worker_id}] [SUBMIT {attempt}] Captcha rejected - re-solving...")
-                    
-                    # Try to solve new captcha
-                    has_captcha, _ = self.solver.safe_captcha_check(page, f"RESUBMIT_{attempt}")
-                    if has_captcha:
-                        success, code, status = self.solver.solve_from_page(page, f"RESUBMIT_{attempt}")
-                        if success:
-                            logger.info(f"[W{worker_id}] New captcha solved: '{code}'")
-                            self.global_stats.captchas_solved += 1
-                            continue
-                    
-                    self.global_stats.captchas_failed += 1
-                    continue
-                
-                # If we're back on month/day page, slot was taken
-                if "appointment_showMonth" in page.url or "appointment_showDay" in page.url:
-                    logger.error(f"[W{worker_id}] [SUBMIT {attempt}] Slot lost - redirected to calendar")
-                    return False
-                
-            except Exception as e:
-                logger.error(f"[W{worker_id}] [SUBMIT {attempt}] Error: {e}")
-                continue
-        
-        logger.warning(f"[W{worker_id}] Max submit attempts ({max_attempts}) reached")
-        return False
-    
-    def _check_submission_success(self, page: Page, worker_id: int) -> bool:
-        """Check if submission was successful"""
-        try:
-            content = page.content().lower()
-            
-            # Success indicators
-            success_terms = [
-                "appointment number",
-                "confirmation",
-                "successfully",
-                "termin wurde gebucht",
-                "ihre buchung",
-                "booking confirmed",
-                "appointment confirmed",
+            worker_logger.info("📝 Filling form (Human Mode)...")
+            fields = [
+                ("input[name='lastname']", Config.LAST_NAME),
+                ("input[name='firstname']", Config.FIRST_NAME),
+                ("input[name='email']", Config.EMAIL),
+                ("input[name='emailrepeat']", Config.EMAIL),
+                ("input[name='emailRepeat']", Config.EMAIL), 
+                ("input[name='fields[0].content']", Config.PASSPORT),
+                ("input[name='fields[1].content']", Config.PHONE.replace("+", "00").strip())
             ]
             
-            for term in success_terms:
-                if term in content:
-                    logger.critical(f"[W{worker_id}] *** SUCCESS! Found: '{term}' ***")
-                    
-                    # Save evidence
-                    self.debug_manager.save_critical_screenshot(page, "SUCCESS_FINAL", worker_id)
-                    self.debug_manager.save_debug_html(page, "SUCCESS_FINAL", worker_id)
-                    
-                    # Notify
-                    try:
-                        send_success_notification(self.session_id, worker_id, None)
-                    except:
-                        pass
-                    
-                    with self.lock:
-                        self.global_stats.success = True
-                    
-                    self.stop_event.set()
-                    return True
-                    
-            # If we get here, no success terms found
-            logger.warning(f"[W{worker_id}] Submission verification failed - checking for specific errors...")
-            
-            # Save snapshot of what we see
-            try:
-                self.debug_manager.save_debug_html(page, "submission_failed_snapshot", worker_id)
-                self.debug_manager.save_critical_screenshot(page, "submission_failed_snapshot", worker_id)
-            except:
-                pass
-                
-            return False
-        except Exception as e:
-            logger.error(f"[W{worker_id}] Error in success check: {e}")
-            return False
-    
-    def _is_on_form_page(self, page: Page) -> bool:
-        """Check if still on form page (silent reject)"""
-        try:
-            return page.locator("input[name='lastname']").count() > 0
-        except:
-            return False
-    
-    # ==================== Scout Behavior ====================
-    
-    def _scout_behavior(self, page: Page, session: SessionState, worker_logger):
-        """
-        Scout behavior: Fast discovery, signals attackers
-        Does NOT book - purely for finding slots
-        """
-        worker_id = session.worker_id
-        
-        try:
-            # Get month URLs to scan
-            month_urls = self.generate_month_urls()
-            
-            for url in month_urls:
-                if self.stop_event.is_set():
-                    return
-                
-                # Navigate to month page
+            for selector, value in fields:
                 try:
-                    page.goto(url, timeout=20000, wait_until="domcontentloaded")
-                    session.current_url = url
-                    session.touch()
-                    
-                    with self.lock:
-                        self.global_stats.pages_loaded += 1
-                        self.global_stats.months_scanned += 1
-                        self.global_stats.scans += 1
-                        
-                except Exception as e:
-                    worker_logger.warning(f"Navigation error: {e}")
-                    with self.lock:
-                        self.global_stats.navigation_errors += 1
-                    continue
-                
-                # Check session health
-                if not self.validate_session_health(page, session, "SCOUT_MONTH"):
-                    return
-                
-                # Handle captcha if present
-                has_captcha, _ = self.solver.safe_captcha_check(page, "SCOUT_MONTH")
-                if has_captcha:
-                    success, code, captcha_status = self.solver.solve_from_page(page, "SCOUT_MONTH")
-                    if success and code:
-                        self.solver.submit_captcha(page, "enter")
-                        try:
-                            page.wait_for_load_state("domcontentloaded", timeout=5000)
-                        except:
-                            pass
-                        
-                        with self.lock:
-                            self.global_stats.captchas_solved += 1
-                        session.mark_captcha_solved()
-                    else:
-                        with self.lock:
-                            self.global_stats.captchas_failed += 1
-                        continue
-                
-                # Check for "no appointments" message
-                content = page.content().lower()
-                if "no appointments" in content or "keine termine" in content:
-                    continue
-                
-                # Look for available days
-                day_links = page.locator("a.arrow[href*='appointment_showDay']").all()
-                
-                if day_links:
-                    num_days = len(day_links)
-                    worker_logger.critical(f"🔥 SCOUT FOUND {num_days} DAYS!")
-                    
-                    with self.lock:
-                        self.global_stats.days_found += num_days
-                    
-                    # Get the first day URL
-                    first_href = day_links[0].get_attribute("href")
-                    if first_href:
-                        # Build full URL for attackers
-                        base_domain = self.base_url.split("/extern")[0]
-                        self.target_url = f"{base_domain}/{first_href}"
-                        
-                        # Signal attackers!
-                        worker_logger.critical(f"🟢 SIGNALING ATTACKERS! URL: {self.target_url[:50]}...")
-                        send_alert(
-                            f"🟢 <b>SCOUT: SLOTS DETECTED!</b>\n"
-                            f"📅 Days found: {num_days}\n"
-                            f"⏰ Attackers engaging..."
-                        )
-                        
-                        self.incident_manager.create_incident(
-                            session.session_id, IncidentType.SLOT_DETECTED,
-                            IncidentSeverity.INFO,
-                            f"Found {num_days} available days"
-                        )
-                        
-                        # Signal the event
-                        self.slot_event.set()
-                        
-                        # Scout doesn't proceed to booking - let attackers handle it
-                        return
-                
-        except Exception as e:
-            worker_logger.error(f"Scout behavior error: {e}")
-            session.increment_failure(str(e))
-    
-    # ==================== Attacker Behavior ====================
-    
-    def _attacker_behavior(self, page: Page, session: SessionState, worker_logger):
-        """
-        Attacker behavior: Wait for scout signal or scan independently
-        Executes booking when slots are found
-        """
-        worker_id = session.worker_id
-        
-        try:
-            # In attack mode, scan independently
-            mode = self.get_mode()
-            
-            # If not attack mode and no signal, do light scanning
-            if mode not in ["ATTACK", "PRE_ATTACK"] and not self.slot_event.is_set():
-                # Light patrol - don't overwhelm server
-                time.sleep(random.uniform(2, 5))
-                
-                # Check for scout signal
-                if self.slot_event.wait(timeout=1.0):
-                    worker_logger.info("📡 Received scout signal!")
-            
-            # If signal received and we have a target URL, go directly there
-            if self.slot_event.is_set() and self.target_url:
-                worker_logger.info(f"🎯 Attacking target: {self.target_url[:50]}...")
-                try:
-                    page.goto(self.target_url, timeout=15000, wait_until="domcontentloaded")
-                    session.touch()
-                except Exception as e:
-                    worker_logger.warning(f"Target navigation failed: {e}")
-                    self.slot_event.clear()  # Clear and retry
-                    return
-            else:
-                # Independent scanning
-                month_urls = self.generate_month_urls()
-                
-                # Attackers scan fewer months to stay ready
-                for url in month_urls[:3]:
-                    if self.stop_event.is_set():
-                        return
-                    
-                    try:
-                        page.goto(url, timeout=20000, wait_until="domcontentloaded")
-                        session.current_url = url
-                        session.touch()
-                        
-                        with self.lock:
-                            self.global_stats.pages_loaded += 1
-                            self.global_stats.scans += 1
-                            
-                    except Exception as e:
-                        worker_logger.warning(f"Navigation error: {e}")
-                        continue
-                    
-                    # Handle captcha
-                    has_captcha, _ = self.solver.safe_captcha_check(page, f"ATK_MONTH")
-                    if has_captcha:
-                        success, code, captcha_status = self.solver.solve_from_page(page, f"ATK_MONTH")
-                        if success and code:
-                            self.solver.submit_captcha(page, "enter")
-                            try:
-                                page.wait_for_load_state("domcontentloaded", timeout=4000)
-                            except:
-                                pass
-                            
-                            with self.lock:
-                                self.global_stats.captchas_solved += 1
-                            session.mark_captcha_solved()
-                        else:
-                            continue
-                    
-                    # Look for days
-                    day_links = page.locator("a.arrow[href*='appointment_showDay']").all()
-                    if day_links:
-                        break
-                else:
-                    # No days found in any month
-                    return
-            
-            # Check session health
-            if not self.validate_session_health(page, session, "ATK_DAY"):
-                return
-            
-            # Click on first available day (or we're already there from target_url)
-            day_links = page.locator("a.arrow[href*='appointment_showDay']").all()
-            if day_links:
-                target_day = random.choice(day_links)
-                href = target_day.get_attribute("href")
-                
-                worker_logger.info(f"📅 Clicking day: {href[:40] if href else 'N/A'}...")
-                
-                try:
-                    target_day.click(timeout=5000)
-                    page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception as e:
-                    # Fallback: direct navigation
-                    if href:
-                        base_domain = self.base_url.split("/extern")[0]
-                        page.goto(f"{base_domain}/{href}", timeout=15000)
-                
-                session.reset_for_new_flow()
-            
-            # Handle day captcha
-            has_captcha, _ = self.solver.safe_captcha_check(page, "ATK_DAY")
-            if has_captcha:
-                success, code, captcha_status = self.solver.solve_from_page(page, "ATK_DAY")
-                if success and code:
-                    self.solver.submit_captcha(page, "enter")
-                    try:
-                        page.wait_for_load_state("domcontentloaded", timeout=4000)
-                    except:
-                        pass
-                    session.mark_captcha_solved()
-                else:
-                    return
-            
-            # Look for time slots
-            time_links = page.locator("a.arrow[href*='appointment_showForm']").all()
-            
-            if time_links:
-                with self.lock:
-                    self.global_stats.slots_found += len(time_links)
-                
-                worker_logger.critical(f"⏰ [W{worker_id}] {len(time_links)} TIME SLOTS FOUND!")
-                
-                # Click first time slot
-                target_time = random.choice(time_links)
-                href = target_time.get_attribute("href")
-                
-                try:
-                    target_time.click(timeout=5000)
-                    page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception as e:
-                    if href:
-                        base_domain = self.base_url.split("/extern")[0]
-                        page.goto(f"{base_domain}/{href}", timeout=15000)
-                
-                session.reset_for_new_flow()
-                
-                # Handle form captcha
-                has_captcha, _ = self.solver.safe_captcha_check(page, "ATK_FORM")
-                if has_captcha:
-                    success, code, captcha_status = self.solver.solve_from_page(page, "ATK_FORM")
-                    if success and code:
-                        self.solver.submit_captcha(page, "enter")
-                        try:
-                            page.wait_for_load_state("domcontentloaded", timeout=4000)
-                        except:
-                            pass
-                        session.mark_captcha_solved()
-                    else:
-                        return
-                
-                # Validate we're on the form
-                if not self.validate_session_health(page, session, "FORM"):
-                    return
-                
-                # Check if form is visible
-                if page.locator("input[name='lastname']").count() == 0:
-                    worker_logger.warning("Form not found after navigation")
-                    return
-                
-                # FILL AND SUBMIT FORM!
-                self.incident_manager.create_incident(
-                    session.session_id, IncidentType.BOOKING_ATTEMPT,
-                    IncidentSeverity.INFO,
-                    "Attempting to book appointment"
-                )
-                
-                if self.fill_booking_form(page, session):
-                    if self.submit_form(page, session):
-                        # SUCCESS!
-                        return
-                
-        except Exception as e:
-            worker_logger.error(f"Attacker behavior error: {e}")
-            session.increment_failure(str(e))
-    
-    # ==================== Worker Thread ====================
-    
-    def session_worker(self, browser: Browser, worker_id: int):
-        """
-        Worker thread for one browser session
-        Implements Scout or Attacker behavior based on worker_id
-        """
-        worker_logger = logging.getLogger(f"EliteSniperV2.W{worker_id}")
-        
-        try:
-            # Get proxy for this worker
-            proxy = self.proxies[worker_id - 1] if len(self.proxies) >= worker_id else None
-            
-            # Create initial context
-            context, page, session = self.create_context(browser, worker_id, proxy)
-            
-            role = "SCOUT" if worker_id == 1 else "ATTACKER"
-            worker_logger.info(f"👤 Worker started - Role: {role}")
-            
-            cycle = 0
-            last_status_update = 0
-            
-            while not self.stop_event.is_set():
-                cycle += 1
-                
-                try:
-                    current_time = time.time()
-                    mode = self.get_mode()
-                    
-                    # Periodic status update (every 5 minutes)
-                    if current_time - last_status_update > 300:
-                        send_status_update(
-                            self.session_id,
-                            f"Cycle {cycle}",
-                            self.global_stats.to_dict(),
-                            mode
-                        )
-                        last_status_update = current_time
-                    
-                    # Pre-attack reset - fresh session before attack window
-                    if self.is_pre_attack() and not session.pre_attack_reset_done:
-                        worker_logger.warning("⚙️ PRE-ATTACK: Fresh session reset")
-                        try:
-                            context.close()
-                        except:
-                            pass
-                        context, page, session = self.create_context(browser, worker_id, proxy)
-                        session.pre_attack_reset_done = True
-                        
-                        # Pre-solve captcha while waiting
-                        for _ in range(3):
-                            try:
-                                page.goto(self.base_url, timeout=30000, wait_until="domcontentloaded")
-                                self.solver.pre_solve(page, "PRE_ATTACK")
-                                break
-                            except:
-                                time.sleep(2)
-                        
-                        continue
-                    
-                    # Check session health
-                    if session.should_terminate() or session.is_expired():
-                        worker_logger.warning("💀 Session unhealthy - Rebirth!")
-                        try:
-                            context.close()
-                        except:
-                            pass
-                        context, page, session = self.create_context(browser, worker_id, proxy)
-                        continue
-                    
-                    # Route to appropriate behavior based on role
-                    if session.role == SessionRole.SCOUT:
-                        self._scout_behavior(page, session, worker_logger)
-                    else:
-                        self._attacker_behavior(page, session, worker_logger)
-                    
-                    # Reset slot event after processing (attackers will re-wait)
-                    if session.role == SessionRole.ATTACKER and self.slot_event.is_set():
-                        # Small delay before clearing to let other attackers see it
-                        time.sleep(0.5)
-                        self.slot_event.clear()
-                
-                except Exception as e:
-                    worker_logger.error(f"❌ Session crashed: {e}")
-                    # In single session mode, we might want to restart?
-                    # For V3/V2.0.0 persistence, _run_single_session has its own loop
-                    # If it returns, it's either success or fatal stop
-                    if self.global_stats.success:
-                        worker_logger.info("🏆 Application Success via Session")
-                        break
-                    time.sleep(5) # Cooldown before restart attempt
-                    
-                    # Hard reset context on crash
-                    try:
-                        context.close()
-                    except:
-                        pass
-                    # Recreate context loop continues naturally
-                    continue
-        
-        except Exception as e:
-            worker_logger.error(f"[FATAL] Worker error: {e}", exc_info=True)
-        
-        finally:
-            try:
-                context.close()
-            except:
-                pass
-            worker_logger.info("[END] Worker terminated")
-    
-    # ==================== Single Session Mode ====================
-    
-    def _run_single_session(self, browser: Browser, worker_id: int = 1):
-        """
-        Run a single robust blocking session with cyclic scanning pattern
-        
-        [RESTORED from asniper-main - Proven Working Version]
-        """
-        worker_logger = logging.getLogger(f"Worker-{worker_id}")
-        
-        # Create Browser Context
-        try:
-            proxy = Config.PROXIES[worker_id % len(Config.PROXIES)] if Config.PROXIES else None
-        except: proxy = None
-        
-        context, page, session = self.create_context(self.browser, worker_id, proxy)
-        self.current_page = page # Expose for C2 Screenshot
-        
-        session.role = SessionRole.SCOUT
-        
-        worker_logger.info(f"[START] Cyclic Scanning Mode (Proven Working Pattern)")
-        
-        try:
-            max_cycles = 1000  # Persistent runner
-            
-            for cycle in range(max_cycles):
-                if self.stop_event.is_set(): break
-                
-                # PAUSE CHECK (C2)
-                if self.paused.is_set():
-                    worker_logger.info("⏸️ Session PAUSED by C2")
-                    while self.paused.is_set() and not self.stop_event.is_set():
-                        time.sleep(1)
-                    worker_logger.info("▶️ Session RESUMED")
-                
-                worker_logger.info(f"🔄 [CYCLE {cycle+1}] Scanning...")
-                
-                try:
-                    # 1. GENERATE TARGETS
-                    month_urls = self.generate_month_urls()
-                    
-                    # 2. SCAN PHASE
-                    for url in month_urls:
-                        if self.stop_event.is_set(): break
-                        
-                        # Process Month (Returns True if slot found and booked)
-                        if self._process_month_page(page, session, url, worker_logger):
-                            return True  # SUCCESS!
-                        
-                        # CIRCUIT BREAKER: Fail Fast on Network Issues
-                        if getattr(session, 'consecutive_network_failures', 0) >= 2:
-                             worker_logger.warning("⚡ Circuit Breaker Triggered: Network Unstable. Resetting session...")
-                             break
-                        
-                        # Small delay between months
-                        time.sleep(random.uniform(1, 2))
-                    
-                    # 3. SLEEP PHASE
-                    sleep_time = self.get_sleep_interval()
-                    worker_logger.info(f"💤 Sleeping {sleep_time:.1f}s...")
-                    time.sleep(sleep_time)
-                    
-                    # 4. MAINTENANCE PHASE (GARBAGE COLLECTION)
-                    if session.age() > Config.SESSION_MAX_AGE or getattr(session, 'consecutive_network_failures', 0) >= 2:
-                        reason = "Age" if session.age() > Config.SESSION_MAX_AGE else "Network Instability"
-                        worker_logger.info(f"♻️ Session Reset triggered ({reason}) - Recreating Context...")
-                        
-                        # STRICT CLEANUP BEFORE REBIRTH
-                        try: 
-                            page.close()
-                            context.close()
-                        except: pass
-                        
-                        # FRESH CONTEXT
-                        context, page, session = self.create_context(browser, worker_id, proxy)
-                        self.current_page = page  # Update reference
-                        session.role = SessionRole.SCOUT
-                        
-                except Exception as cycle_error:
-                    worker_logger.error(f"⚠️ Cycle error: {cycle_error}")
-                    # Force reset on error to prevent zombie state
-                    try:
-                        page.close()
-                        context.close()
-                    except: pass
-                    context, page, session = self.create_context(browser, worker_id, proxy)
-                    self.current_page = page  # Update reference
-                    session.role = SessionRole.SCOUT
+                    if page.locator(selector).count() > 0:
+                        page.focus(selector)
+                        page.fill(selector, "")
+                        page.type(selector, value, delay=10) 
+                        page.evaluate(f"document.querySelector(\"{selector}\").blur()")
+                except Exception: continue
 
-        except Exception as e:
-            worker_logger.error(f"❌ Critical Session Error: {e}", exc_info=True)
-            return False
-        finally:
-            # ULTIMATE CLEANUP
-            worker_logger.info("🧹 Final cleanup of single session...")
-            try: 
-                page.close()
-                context.close()
-            except: pass
-            
-        return False  # Completed all cycles without success
+            if not self.select_category_by_value(page):
+                try:
+                    page.evaluate("""
+                        const s = document.querySelector('select');
+                        if(s) { s.selectedIndex = 1; s.dispatchEvent(new Event('change')); }
+                    """)
+                except Exception: pass
 
-    def _analyze_page_state(self, page: Page, logger) -> str:
+            self.global_stats.forms_filled += 1
+            return True
+        except Exception:
+            return False
+
+    def _submit_form(self, page: Page, session: SessionState, worker_logger, initial_code: Optional[str] = None) -> bool:
         """
-        Analyzes the current page HTML to determine the exact state.
-        Based on actual website HTML structure.
-        
-        PRIORITY ORDER (most important first):
-        1. SLOTS_FOUND - Success! Days available
-        2. EMPTY_CALENDAR - No appointments this month
-        3. WRONG_CODE - Captcha was wrong
-        4. CAPTCHA - Need to solve captcha
-        5. UNKNOWN - Fallback
-        
-        Returns: 'CAPTCHA', 'WRONG_CODE', 'EMPTY_CALENDAR', 'SLOTS_FOUND', 'UNKNOWN'
+        [FACT-BASED FIX: Smart Synchronized Strike]
+        1. يتأكد عبر DOM أن البيانات (الجواز/الغرض) موجودة فعلياً.
+        2. يطلب كابتشا دقيقة (6 أحرف) من المحرك.
+        3. يحقن ويرسل، ثم ينتظر استجابة الخادم بدقة.
         """
+        worker_logger.info(f"🚀 STARTING SMART SYNCHRONIZED SUBMISSION...")
+        
+        INPUT_ID = "appointment_newAppointmentForm_captchaText"
+        SUBMIT_ID = "appointment_newAppointmentForm_appointment_addAppointment"
+
+        worker_logger.info("🧠 Requesting exact 6-char captcha from local OCR...")
+        captcha_code = self.solver.get_valid_captcha_turbo(page, "TURBO_SYNC")
+        
+        if not captcha_code:
+            worker_logger.error("❌ Failed to get valid 6-char captcha. Aborting submission.")
+            return False
+
+        worker_logger.info(f"✅ Captcha ready: {captcha_code}. Verifying form DOM state...")
+        
+        is_form_filled = page.evaluate("""
+            () => {
+                const lname = document.querySelector("input[name='lastname']");
+                const cat = document.querySelector("select");
+                return (lname && lname.value.length > 0) && (cat && cat.value !== "");
+            }
+        """)
+
+        if not is_form_filled:
+            worker_logger.critical("🛑 DOM Desync Detected! Form data is missing in UI. Re-injecting...")
+            self._fill_booking_form(page, session, worker_logger)
+            time.sleep(0.2) 
+
+        worker_logger.critical(f"⚡ ALL SYSTEMS GO! Injecting Captcha '{captcha_code}' and striking!")
+        
+        page.evaluate(f"""
+            document.getElementById('{INPUT_ID}').value = '{captcha_code}';
+            document.getElementById('{SUBMIT_ID}').click();
+        """)
+
+        worker_logger.info("📡 Waiting for server resolution...")
         try:
-            # Wait for page to stabilize first
-            try:
-                page.wait_for_load_state("domcontentloaded", timeout=3000)
-            except:
-                pass
-            
-            time.sleep(0.3)  # Small buffer for dynamic content
-            
+            page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception as e:
+            pass
+
+        try:
             content = page.content().lower()
             
-            # 1. SLOTS_FOUND - Check first! This is SUCCESS
-            # HTML: <a href="...appointment_showDay..." class="arrow">Appointments are available</a>
-            try:
-                slot_count = page.locator("a[href*='appointment_showDay']").count()
-                if slot_count > 0:
-                    logger.info(f"🎯 Detected {slot_count} available day(s)!")
-                    return "SLOTS_FOUND"
-            except:
-                pass
+            if "appointment number" in content or "termin nummer" in content or "erfolgreich" in content:
+                worker_logger.critical("🏆 TARGET DESTROYED (SUCCESS)! Booking markers confirmed!")
+                self.global_stats.success = True
+                self.debug_manager.save_critical_screenshot(page, "VICTORY_CONFIRMED", session.worker_id)
+                self.stop_event.set()
+                return True
+                
+            elif "wrong" in content or "falsch" in content:
+                worker_logger.warning("❌ Server rejected captcha. Retrying...")
+                return False
+                
+            elif page.locator("input[name='lastname']").count() > 0:
+                worker_logger.warning("❌ Soft rejection - Form still present.")
+                return False
+                
+        except Exception as e:
+            worker_logger.warning(f"⚠️ Resolution check failed: {e}")
             
-            # 2. EMPTY_CALENDAR - Check second
-            # HTML: "Unfortunately, there are no appointments available"
-            if "unfortunately, there are no appointments available" in content:
-                return "EMPTY_CALENDAR"
-            if "keine termine" in content:
+        return False
+
+    def _analyze_page_state(self, page: Page, logger) -> str:
+        try:
+            try: page.wait_for_load_state("domcontentloaded", timeout=3000)
+            except: pass
+            
+            time.sleep(0.3)  
+            content = page.content().lower()
+            
+            try:
+                if page.locator("a[href*='appointment_showDay']").count() > 0:
+                    return "SLOTS_FOUND"
+            except: pass
+            
+            if "unfortunately, there are no appointments available" in content or "keine termine" in content:
                 return "EMPTY_CALENDAR"
             if "no appointments" in content and "appointment_showDay" not in content:
                 return "EMPTY_CALENDAR"
             
-            # 3. WRONG_CODE - Check third
-            # HTML: <div id="message" class="global-error"><p>The entered text was wrong</p></div>
-            if "entered text was wrong" in content:
-                return "WRONG_CODE"
+            if "entered text was wrong" in content: return "WRONG_CODE"
             try:
-                if page.locator("div.global-error").is_visible(timeout=300):
-                    return "WRONG_CODE"
-            except:
-                pass
+                if page.locator("div.global-error").is_visible(timeout=300): return "WRONG_CODE"
+            except: pass
             
-            # 4. CAPTCHA - Check if we're on captcha page
-            # HTML: <form id="appointment_captcha_month">
             try:
-                if page.locator("#appointment_captcha_month").is_visible(timeout=300):
-                    return "CAPTCHA"
-            except:
-                pass
+                if page.locator("#appointment_captcha_month").is_visible(timeout=300): return "CAPTCHA"
+            except: pass
             
-            # Fallback: check for captcha input
             try:
-                if page.locator("input[name='captchaText']").is_visible(timeout=300):
-                    return "CAPTCHA"
-            except:
-                pass
+                if page.locator("input[name='captchaText']").is_visible(timeout=300): return "CAPTCHA"
+            except: pass
 
             return "UNKNOWN"
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Page state analysis error: {e}")
+        except:
             return "UNKNOWN"
-
-    def _process_month_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
-        """
-        [RESTORED from asniper-main] Smart Month Page Handler with State Analysis
-        
-        Flow: Navigate → Analyze → Solve/Act → Verify → Loop/Exit
-        
-        Returns: True if booking successful, False to move to next month
-        """
-        try:
-            # A. SESSION-PRESERVING NAVIGATION (CRITICAL FIX!)
-            # Using JS navigation instead of page.goto() to preserve session cookies/tokens
-            # This prevents captcha on every month navigation
-            logger.info(f"🌐 Navigating to: {url[:60]}...")
-            
-            max_nav_retries = 2
-            for nav_attempt in range(max_nav_retries):
-                try:
-                    # CRITICAL: Use JS navigation to preserve session
-                    # page.goto() creates new HTTP request → destroys session → captcha!
-                    # window.location.href reuses session → no captcha!
-                    page.evaluate(f"window.location.href = '{url}';")
-                    
-                    # Wait for navigation to complete
-                    try:
-                        page.wait_for_load_state("domcontentloaded", timeout=30000)
-                    except:
-                        # Page might already be loaded
-                        pass
-                    
-                    break  # Success!
-                except Exception as nav_e:
-                    logger.warning(f"⚠️ Navigation failed (Attempt {nav_attempt+1}/{max_nav_retries}): {nav_e}")
-                    
-                    if nav_attempt < max_nav_retries - 1:
-                        sleep_time = 5.0 * (nav_attempt + 1)
-                        logger.info(f"💤 Cooling down {sleep_time}s before retry...")
-                        time.sleep(sleep_time)
-                        continue
-                    else:
-                        logger.error(f"❌ Max navigation retries reached for {url}")
-                        if not hasattr(session, 'consecutive_network_failures'):
-                            session.consecutive_network_failures = 0
-                        session.consecutive_network_failures += 1
-                        return False
-            
-            session.current_url = url
-            session.touch()
-            if not hasattr(session, 'consecutive_network_failures'):
-                session.consecutive_network_failures = 0
-            session.consecutive_network_failures = 0  # Reset on success
-            self.global_stats.pages_loaded += 1
-            
-            # B. SMART CAPTCHA SOLVING LOOP (5 attempts per month - INDEPENDENT!)
-            max_attempts = 5
-            
-            for attempt in range(max_attempts):
-                # Analyze current page state
-                state = self._analyze_page_state(page, logger)
-                logger.info(f"🧐 Page State Analysis [{attempt+1}/{max_attempts}]: {state}")
-                
-                # STATE-BASED DECISION ENGINE
-                if state == "SLOTS_FOUND":
-                    # SUCCESS! Days with appointments found
-                    logger.critical("🎯 SUCCESS: Days with appointments detected!")
-                    
-                    # Find and click the first available day
-                    day_links = page.locator("a[href*='appointment_showDay']").all()
-                    if day_links:
-                        logger.critical(f"📅 FOUND {len(day_links)} DAYS AVAILABLE!")
-                        self.global_stats.days_found += len(day_links)
-                        
-                        target_day = day_links[0]
-                        day_href = target_day.get_attribute("href")
-                        
-                        if day_href:
-                            base_domain = self.base_url.split("/extern")[0]
-                            day_url = f"{base_domain}/{day_href}" if not day_href.startswith("http") else day_href
-                            return self._process_day_page(page, session, day_url, logger)
-                    
-                    return False
-                
-                elif state == "EMPTY_CALENDAR":
-                    # No appointments this month - move to next
-                    logger.info("📅 Calendar Empty. Exiting month to check next target in list.")
-                    return False
-                
-                elif state == "WRONG_CODE":
-                    # Captcha was wrong - retry (page already has new captcha)
-                    logger.warning(f"❌ Server said: 'Wrong captcha'. Retrying... [{attempt+1}/{max_attempts}]")
-                    self.global_stats.captchas_failed += 1
-                    # Continue to solve new captcha
-                    
-                elif state == "CAPTCHA":
-                    # Need to solve captcha
-                    logger.info(f"🔐 Captcha page detected. Solving... [{attempt+1}/{max_attempts}]")
-                    
-                else:
-                    # UNKNOWN state - try to solve anyway
-                    logger.warning(f"❓ Unknown page state. Attempting captcha solve...")
-                
-                # CAPTCHA SOLVING
-                session_age = session.age() if hasattr(session, 'age') else 0
-                success, code, status = self.solver.solve_from_page(page, f"GATE_{attempt+1}", session_age=session_age)
-                
-                # Check for BLACK CAPTCHA
-                if status in ["BLACK_IMAGE", "NO_IMAGE", "BLACKOUT"]:
-                    logger.critical("⛔ BLACK CAPTCHA DETECTED - SESSION POISONED!")
-                    logger.critical("⛔ IP may be flagged - entering 120s cooldown...")
-                    session.health = SessionHealth.POISONED
-                    time.sleep(120)
-                    return False
-                
-                # 8-char captcha means heavy throttling
-                if status == "AGING_8":
-                    logger.critical("🚨 8-char captcha - HEAVY THROTTLING! Entering deep sleep (120s)...")
-                    time.sleep(120)
-                    try:
-                        page.reload(wait_until="domcontentloaded")
-                    except:
-                        pass
-                    return False
-                
-                # OCR failed - reload for fresh captcha
-                if not success or not code:
-                    logger.warning(f"❌ OCR failed ({status}) - reloading page...")
-                    page.reload(wait_until="domcontentloaded", timeout=10000)
-                    time.sleep(1)
-                    continue
-                
-                # Submit the captcha
-                logger.info(f"📝 Submitting captcha: '{code}'")
-                self.solver.submit_captcha(page, "auto")
-                
-                # Wait for page response
-                try:
-                    page.wait_for_selector(
-                        "div.global-error, a[href*='appointment_showDay'], h2:has-text('Please select')",
-                        timeout=8000
-                    )
-                except:
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=5000)
-                    except:
-                        try:
-                            page.wait_for_load_state("domcontentloaded", timeout=3000)
-                        except:
-                            pass
-                
-                time.sleep(1.5)  # Buffer for page to stabilize
-                # Loop will analyze new state on next iteration
-            
-            # Exhausted all attempts - CLEAR EXIT!
-            logger.error(f"❌ Failed after {max_attempts} attempts - moving to next month")
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Month page processing error: {e}")
-            return False
-
-    def _process_day_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
-        """
-        [RESTORED from asniper-main] Handle Day Page: Scan Slots → Book
-        """
-        try:
-            logger.info("📆 Analyzing Day Page...")
-            page.goto(url, timeout=20000, wait_until="domcontentloaded")
-            
-            # Find real slot links (showForm)
-            slot_links = page.locator("a.arrow[href*='appointment_showForm'], a[href*='appointment_showForm']").all()
-            if not slot_links:
-                logger.info("⚠️ Days shown but no slots active.")
-                return False
-                
-            logger.critical(f"⏰ {len(slot_links)} SLOTS FOUND! ENGAGING!")
-            self.global_stats.slots_found += len(slot_links)
-            
-            # Get first slot URL
-            target_slot = slot_links[0]
-            slot_href = target_slot.get_attribute("href")
-            
-            if slot_href:
-                # Build full booking form URL
-                base_domain = self.base_url.split("/extern")[0]
-                form_url = f"{base_domain}/{slot_href}" if not slot_href.startswith("http") else slot_href
-                
-                logger.critical(f"🎯 Navigating to booking form: {form_url[:60]}...")
-                
-                # Navigate to form and process booking
-                page.goto(form_url, timeout=20000, wait_until="domcontentloaded")
-                time.sleep(2)
-                
-                # Check if we have _process_booking_form
-                if hasattr(self, '_process_booking_form'):
-                    return self._process_booking_form(page, session, form_url, logger)
-                else:
-                    # Fallback: just mark success
-                    logger.critical("🎉 Reached booking form!")
-                    self.global_stats.success = True
-                    return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Day processing error: {e}")
-            return False
 
     def check_session_health(self, page: Page, session: SessionState, logger) -> bool:
-        """
-        [FACT-BASED] Check if session is alive using selectors from sniberhtmel.
-        Returns False if we are kicked out to a gate/captcha page.
-        """
         try:
-            # 1. Check for Month Captcha Page (The Gate)
-            # 1. Check for Month Captcha Page (The Gate)
-            # Source: debug_CRITICAL_slot_disappeared...html -> <form id="appointment_captcha_month">
-            if page.locator("#appointment_captcha_month").is_visible(timeout=500):
-                 # [CRITICAL UPDATE] This is NOT a dead session. It's a Gated Session.
-                 # Let _process_month_page handle solving it.
-                 # Do NOT return False here.
-                 pass
-
-            # 2. Check for Booking Form Captcha (The Inner Gate)
-            # Source: debug_verification_step...html -> #appointment_newAppointmentForm_captchaText
-            if page.locator("#appointment_newAppointmentForm_captchaText").is_visible(timeout=500):
-                 # This is actually GOOD if we are booking, but bad if we are scanning
-                 # Context matters, but for safety, if we see this unexpected, it might be a flow error.
-                 # For now, we assume if we are scanning months, this shouldn't be here.
-                 pass
-
-            # 3. Check for Global Error
-            # Source: common error pages -> div.global-error
-            if page.locator("div.global-error").is_visible(timeout=500):
-                logger.warning("⚠️ Session Check: Detected Global Error")
-                # Don't kill immediately, but warn.
-                
+            if page.locator("#appointment_captcha_month").is_visible(timeout=500): pass
+            if page.locator("#appointment_newAppointmentForm_captchaText").is_visible(timeout=500): pass
+            if page.locator("div.global-error").is_visible(timeout=500): pass
             return True
-            
         except:
-            return True # Assume alive on error to avoid false positives
+            return True 
 
     def _process_month_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
-        """
-        Smart Month Page Handler with HTML-Based State Analysis
-        """
         try:
-            # A. ROBUST NAVIGATION
-            # ... (Navigation logic remains similar) ...
-            
-            # [Added] Pre-check Session Health
             if not self.check_session_health(page, session, logger):
                 return False
 
-            # ... (Navigation code) ...
-            logger.info(f"🌐 Navigating to: {url[:60]}...")
             max_nav_retries = 2
             for nav_attempt in range(max_nav_retries):
                 try:
-                    page.goto(url, timeout=60000, wait_until="domcontentloaded")
+                    page.evaluate(f"window.location.href = '{url}';")
+                    try: page.wait_for_load_state("domcontentloaded", timeout=30000)
+                    except: pass
                     break
                 except Exception as nav_e:
-                    logger.warning(f"⚠️ Nav failed ({nav_attempt+1}/{max_nav_retries}): {nav_e}")
                     if nav_attempt < max_nav_retries - 1:
                         time.sleep(5)
                         continue
-                    else:
-                        return False
+                    else: return False
             
+            session.current_url = url
             session.touch()
             self.global_stats.pages_loaded += 1
             
-            # [Added] Post-Navigation Health Check
             if not self.check_session_health(page, session, logger):
-                logger.warning("⚠️ Session died after navigation.")
                 return False
 
-            # B. SMART CAPTCHA SOLVING LOOP
-            max_attempts = 5  # increased from 3 to 5 (USER REQUIREMENT)
+            max_attempts = 5  
             consecutive_failures = 0
             
             for attempt in range(max_attempts):
-                # Analyze State
                 state = self._analyze_page_state(page, logger)
                 
                 if state == "SLOTS_FOUND":
-                    # ... (Success logic) ...
-                    logger.critical("🎯 SUCCESS: Slots detected!")
-                    # ... (Click logic) ...
                     day_links = page.locator("a[href*='appointment_showDay']").all()
                     if day_links:
-                         # ...
                          target_day = day_links[0]
                          day_href = target_day.get_attribute("href")
                          if day_href:
@@ -1883,1004 +610,193 @@ class EliteSniperV2:
                     return False
 
                 elif state == "EMPTY_CALENDAR":
-                    logger.info("📅 Calendar Empty.")
                     return False
 
                 elif state == "WRONG_CODE" or state == "CAPTCHA":
-                    # Handle both WRONG_CODE and CAPTCHA states
                     is_wrong_code = (state == "WRONG_CODE")
-                    
                     if is_wrong_code:
-                        logger.warning(f"❌ Server said: 'Wrong captcha'. Retrying... [{attempt+1}/{max_attempts}]")
                         consecutive_failures += 1
                         self.global_stats.captchas_failed += 1
-                        
                         if consecutive_failures >= 5:
-                             logger.critical("🛑 [ANTI-BAN] 5 Consecutive WRONG CODES! Sleeping 2 minutes...")
                              time.sleep(120)
                              return False
-                    else:
-                        logger.info(f"🧩 Captcha detected (Attempt {attempt+1}/{max_attempts})")
 
-                    # Solve
                     success, code, status = self.solver.solve_from_page(page, f"MONTH_{attempt}")
                     
                     if not success:
-                        if not is_wrong_code: # Don't double count failure if it was already wrong code
-                            consecutive_failures += 1
-                        
-                        logger.warning(f"⚠️ Solve failed. Failures: {consecutive_failures}")
-                        
+                        if not is_wrong_code: consecutive_failures += 1
                         if consecutive_failures >= 5:
-                             logger.critical("🛑 [ANTI-BAN] 5 Consecutive Failures! Sleeping 2 minutes...")
                              time.sleep(120)
-                             return False # Exist session to force rebirth
-                        
-                        self._refresh_captcha(page)
+                             return False 
+                        try:
+                            refresh = page.locator("#appointment_newAppointmentForm_form_newappointment_refreshcaptcha")
+                            if refresh.is_visible(): refresh.click()
+                            else: self.solver.reload_captcha(page)
+                            time.sleep(1.5)
+                        except: pass
                         continue
                         
-                    # Submit
                     self.solver.submit_captcha(page, code)
-                    # Loop continues to check result
-                    
+                    try:
+                        page.wait_for_selector("div.global-error, a[href*='appointment_showDay'], h2:has-text('Please select')", timeout=8000)
+                    except:
+                        try: page.wait_for_load_state("networkidle", timeout=5000)
+                        except: pass
+                    time.sleep(1.5)  
                 else:
-                    # Unknown state
                     return False
             
             return False
 
         except Exception as e:
-            logger.error(f"Error processing month: {e}")
             return False
 
-
-    def _inject_booking_script(self, page: Page, url: str):
-        """
-        [TURBO INJECTION] Immediate JS Navigation.
-        Bypasses click delays and preserves session state.
-        
-        From Legacy Elite Sniper - PROVEN WORKING METHOD
-        This function was MISSING and is the root cause of booking failures.
-        """
+    def _process_day_page(self, page: Page, session: SessionState, url: str, logger) -> bool:
         try:
-            logger.info(f"💉 INJECTING: window.location = '{url}'")
-            page.evaluate(f"window.location.href = '{url}';")
-            time.sleep(0.5)  # Brief stability pause
-            return True
-        except Exception as e:
-            logger.error(f"❌ Injection failed: {e}")
+            page.goto(url, timeout=20000, wait_until="domcontentloaded")
+            slot_links = page.locator("a.arrow[href*='appointment_showForm'], a[href*='appointment_showForm']").all()
+            if not slot_links: return False
+                
+            self.global_stats.slots_found += len(slot_links)
+            target_slot = slot_links[0]
+            slot_href = target_slot.get_attribute("href")
+            
+            if slot_href:
+                base_domain = self.base_url.split("/extern")[0]
+                form_url = f"{base_domain}/{slot_href}" if not slot_href.startswith("http") else slot_href
+                page.goto(form_url, timeout=20000, wait_until="domcontentloaded")
+                time.sleep(2)
+                return self._process_booking_form(page, session, form_url, logger)
+            
             return False
-    
-    def _capture_diagnostic(self, page: Page, operation: str, category: str = "general"):
-        """
-        Smart diagnostic capture - skip in ATTACK mode for speed.
-        Prevents 2-3 second overhead during critical booking window.
-        """
-        if self.get_mode() == "ATTACK":
-            logger.debug(f"⚡ Skipping diagnostic in ATTACK mode: {operation}")
-            return None
-        
-        return self.monitor.capture(page, operation, category)
-
-
+        except Exception:
+            return False
 
     def _process_booking_form(self, page: Page, session: SessionState, url: str, logger) -> bool:
-        """Handle Booking: Fill -> Captcha -> Smart Submit"""
         try:
-            logger.info("📝 Entering Booking Phase...")
-            # URL already navigated via _inject_booking_script - just verify we're on form
             try:
                 page.wait_for_selector("input[name='lastname']", timeout=5000)
-                logger.info("✅ Form loaded successfully after injection")
             except:
-                logger.warning("⚠️ Form not loaded after injection - forcing navigation")
                 page.goto(url, timeout=20000, wait_until="domcontentloaded")
             
-            # 1. FAST FILL (Humanized)
             if not self._fill_booking_form(page, session, logger):
                 return False
                 
-            # 2. CAPTCHA SOLVE
-            captcha_code = None
-            has_captcha, _ = self.solver.safe_captcha_check(page, "FORM")
-            if has_captcha:
-                success, code, _ = self.solver.solve_form_captcha_with_retry(page, "BOOKING")
-                if not success:
-                    logger.warning("❌ Booking Captcha Failed")
-                    return False
-                captcha_code = code
-            
-            # 3. DRY RUN CHECK
             if Config.DRY_RUN:
-                logger.critical("🛑 DRY RUN TRIGGERED - NOT SUBMITTING!")
                 self.debug_manager.save_critical_screenshot(page, "DRY_RUN_SUCCESS", session.worker_id)
-                time.sleep(5) # Let user see it
-                return True # Treat as success
+                time.sleep(5) 
+                return True 
                 
-            # 4. SMART SUBMIT
-            return self._submit_form(page, session, logger, initial_code=captcha_code)
+            return self._submit_form(page, session, logger)
             
-        except Exception as e:
-            logger.error(f"❌ Booking error: {e}")
+        except Exception:
             return False
-    
-    # ==================== Main Entry Point ====================
-    
-    def run(self) -> bool:
-        """
-        Main execution entry point
+
+    def _run_single_session(self, browser: Browser, worker_id: int = 1):
+        worker_logger = logging.getLogger(f"Worker-{worker_id}")
         
-        Returns:
-            True if booking successful, False otherwise
-        """
+        try:
+            proxy = Config.PROXIES[worker_id % len(Config.PROXIES)] if Config.PROXIES else None
+        except: proxy = None
+        
+        try:
+            context, page, session = self.create_context(self.browser, worker_id, proxy)
+            self.current_page = page 
+            session.role = SessionRole.SCOUT
+            
+            max_cycles = 1000  
+            
+            for cycle in range(max_cycles):
+                if self.stop_event.is_set(): break
+                
+                if self.paused.is_set():
+                    while self.paused.is_set() and not self.stop_event.is_set(): time.sleep(1)
+                
+                try:
+                    month_urls = self.generate_month_urls()
+                    
+                    for url in month_urls:
+                        if self.stop_event.is_set(): break
+                        if self._process_month_page(page, session, url, worker_logger): return True  
+                        if getattr(session, 'consecutive_network_failures', 0) >= 2: break
+                        time.sleep(random.uniform(1, 2))
+                    
+                    sleep_time = self.get_sleep_interval()
+                    time.sleep(sleep_time)
+                    
+                    if session.age() > Config.SESSION_MAX_AGE or getattr(session, 'consecutive_network_failures', 0) >= 2:
+                        try: 
+                            page.close()
+                            context.close()
+                        except: pass
+                        context, page, session = self.create_context(browser, worker_id, proxy)
+                        self.current_page = page  
+                        session.role = SessionRole.SCOUT
+                        
+                except Exception as cycle_error:
+                    try:
+                        page.close()
+                        context.close()
+                    except: pass
+                    context, page, session = self.create_context(browser, worker_id, proxy)
+                    self.current_page = page  
+                    session.role = SessionRole.SCOUT
+
+        except Exception as e:
+            worker_logger.error(f"❌ Critical Session Error: {e}", exc_info=True)
+            return False
+            
+        finally:
+            worker_logger.info("🧹 Final cleanup of single session...")
+            try: 
+                if 'page' in locals() and page: page.close()
+                if 'context' in locals() and context: context.close()
+            except: pass
+            
+        return False  
+
+    def run(self) -> bool:
         logger.info("=" * 70)
         logger.info(f"[ELITE SNIPER V{self.VERSION}] - STARTING EXECUTION")
-        # Single session mode - multi-session architecture preserved for future
-        logger.info("[MODE] Single Session (Multi-session ready for expansion)")
-        logger.info(f"[ATTACK TIME] {Config.ATTACK_HOUR}:00 AM {Config.TIMEZONE}")
-        logger.info(f"[CURRENT TIME] Aden: {self.get_current_time_aden().strftime('%H:%M:%S')}")
         logger.info("=" * 70)
         
         try:
-            # Send startup notification
-            send_alert(
-                f"[Elite Sniper v{self.VERSION} Started]\n"
-                f"Session: {self.session_id}\n"
-                f"Mode: Single Session\n"
-                f"Attack: {Config.ATTACK_HOUR}:00 AM Aden\n"
-                f"NTP Offset: {self.ntp_sync.offset:.4f}s"
-            )
+            send_alert(f"[Elite Sniper v{self.VERSION} Started]")
             
             with sync_playwright() as p:
-                # Launch browser
-                browser = p.chromium.launch(
-                    headless=Config.HEADLESS,
-                    args=Config.BROWSER_ARGS,
-                    timeout=90000
-                )
-                
-                logger.info("[BROWSER] Launched successfully")
-                
-                # ========================================
-                # SINGLE SESSION MODE (Direct execution)
-                # Architecture preserved for 3 sessions later
-                # ========================================
-                self.browser = browser  # Assign to instance for shared access
-                worker_id = 1  # Scout role for single session
+                browser = p.chromium.launch(headless=Config.HEADLESS, args=Config.BROWSER_ARGS, timeout=90000)
+                self.browser = browser  
+                worker_id = 1  
                 
                 try:
-                    # Run single session directly (no threads)
-                    # [PERSISTENT ARCHITECTURE UPGRADE]
-                    # Enter the Settlement Loop (Infinite Patrol)
                     self._run_single_session(browser, worker_id=worker_id)
                 except Exception as e:
                     logger.error(f"[SESSION ERROR] {e}")
                 
-                # Stop NTP sync
                 self.ntp_sync.stop_background_sync()
-                
-                # Cleanup
                 browser.close()
                 
-                # Save final stats
                 final_stats = self.global_stats.to_dict()
                 self.debug_manager.save_stats(final_stats, "final_stats.json")
                 self.debug_manager.create_session_report(final_stats)
                 
                 if self.global_stats.success:
-                    self._handle_success()
+                    logger.info("[SUCCESS] MISSION ACCOMPLISHED")
                     return True
                 else:
-                    self._handle_completion()
                     return False
                 
         except KeyboardInterrupt:
-            logger.info("\n[STOP] Manual stop requested")
             self.stop_event.set()
             self.ntp_sync.stop_background_sync()
-            send_alert("⏸️ Elite Sniper stopped manually")
             return False
-            
         except Exception as e:
-            logger.error(f"💀 Critical error: {e}", exc_info=True)
-            send_alert(f"🚨 Critical error: {str(e)[:200]}")
             return False
-            
         finally:
             self.cleanup()
-    
-    def _scout_behavior(self, page: Page, session: SessionState, worker_logger):
-        """
-        Scout behavior: Fast discovery without booking
-        Scans months for available days and signals Attackers
-        """
-        worker_logger.info("🔍 Scout scanning...")
-        
-        try:
-            month_urls = self.generate_month_urls()
-            
-            for url in month_urls[:4]:  # First 4 priority months
-                if self.stop_event.is_set():
-                    return
-                
-                try:
-                    # Navigate to month page
-                    page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                    session.pages_loaded += 1
-                    self.global_stats.pages_loaded += 1
-                    
-                    # Save debug HTML
-                    self.debug_manager.save_debug_html(page, "scout_month", session.worker_id)
-                    
-                    # Handle captcha if present
-                    success, code, captcha_status = self.solver.solve_from_page(page, "SCOUT_MONTH")
-                    if success and code:
-                        session.mark_captcha_solved()
-                        self.global_stats.captchas_solved += 1
-                        self.solver.submit_captcha(page)
-                        # [CRITICAL FIX] Wait for page load after submit
-                        try:
-                            page.wait_for_load_state("networkidle", timeout=15000)
-                        except:
-                            pass
-                    
-                    # Check for available days
-                    day_selectors = [
-                        "a.arrow[href*='appointment_showDay']",
-                        "td.buchbar a",
-                        "a[href*='showDay']"
-                    ]
-                    
-                    for selector in day_selectors:
-                        try:
-                            days = page.locator(selector).all()
-                            if days:
-                                worker_logger.critical(f"🟢 SCOUT FOUND {len(days)} DAYS!")
-                                self.global_stats.days_found += len(days)
-                                
-                                # Signal attackers
-                                with self.lock:
-                                    self.target_url = url
-                                
-                                self.slot_event.set()
-                                send_alert(f"🎯 Days found! Signaling attackers. URL: {url[:60]}...")
-                                
-                                time.sleep(2)  # Give attackers time to react
-                                break
-                            else:
-                                # [UX IMPROVEMENT] Explicity log empty results
-                                worker_logger.info(f"⚪ No slots found with selector '{selector}'")
-                        except:
-                            continue
-                    
-                except Exception as e:
-                    worker_logger.warning(f"⚠️ Month scan error: {e}")
-                    session.increment_failure(str(e))
-                    continue
-            
-            self.global_stats.scans += 1
-            
-        except Exception as e:
-            worker_logger.error(f"❌ Scout behavior error: {e}")
-            session.increment_failure(str(e))
-    
-    def _attacker_behavior(self, page: Page, session: SessionState, worker_logger):
-        """
-        Attacker behavior: Wait for Scout signal, then execute booking
-        Pre-positioned with solved captcha for instant action
-        """
-        # If no signal yet, stay ready on first month page
-        if not self.slot_event.is_set():
-            try:
-                if session.pages_loaded == 0:
-                    # Get positioned on first month
-                    month_urls = self.generate_month_urls()
-                    if month_urls:
-                        page.goto(month_urls[0], wait_until="domcontentloaded", timeout=20000)
-                        session.pages_loaded += 1
-                        
-                        # Pre-solve captcha
-                        success, code, captcha_status = self.solver.solve_from_page(page, "ATTACKER_READY")
-                        if success and code:
-                            session.mark_captcha_solved()
-                            self.global_stats.captchas_solved += 1
-                            self.solver.submit_captcha(page)
-                            worker_logger.info("✅ Attacker ready with pre-solved captcha")
-                
-                # Wait for signal with timeout
-                self.slot_event.wait(timeout=5)
-                return
-                
-            except Exception as e:
-                worker_logger.warning(f"⚠️ Attacker standby error: {e}")
-                return
-        
-        # Got signal - ATTACK!
-        worker_logger.warning("🔥 ATTACKER ENGAGING!")
-        
-        try:
-            target = self.target_url
-            if not target:
-                return
-            
-            # Navigate to target month
-            page.goto(target, wait_until="domcontentloaded", timeout=15000)
-            
-            # Handle captcha
-            success, _ = self.solver.solve_from_page(page, "ATTACK_MONTH")
-            if success:
-                self.solver.submit_captcha(page)
-                time.sleep(0.5)
-            
-            # Find and click day
-            day_links = page.locator("a.arrow[href*='appointment_showDay']").all()
-            if not day_links:
-                day_links = page.locator("a[href*='showDay']").all()
-            
-            if not day_links:
-                worker_logger.warning("⚠️ No days found at target")
-                return
-            
-            # Click first available day
-            target_day = day_links[0]
-            day_href = target_day.get_attribute("href")
-            worker_logger.info(f"📅 Clicking day: {day_href}")
-            target_day.click()
-            
-            time.sleep(1)
-            
-            # Handle day page captcha
-            success, _ = self.solver.solve_from_page(page, "ATTACK_DAY")
-            if success:
-                self.solver.submit_captcha(page)
-                time.sleep(0.5)
-            
-            # Find and click time slot
-            time_links = page.locator("a.arrow[href*='appointment_showForm']").all()
-            if not time_links:
-                time_links = page.locator("a[href*='showForm']").all()
-            
-            if not time_links:
-                worker_logger.warning("⚠️ No time slots found")
-                self.global_stats.slots_found = 0
-                return
-            
-            self.global_stats.slots_found += len(time_links)
-            
-            # Click first available time
-            target_time = time_links[0]
-            time_href = target_time.get_attribute("href")
-            worker_logger.info(f"⏰ Clicking time: {time_href}")
-            target_time.click()
-            
-            time.sleep(1)
-            
-            # Handle form page captcha
-            success, _ = self.solver.solve_from_page(page, "ATTACK_FORM")
-            if success:
-                self.solver.submit_captcha(page)
-                time.sleep(0.5)
-            
-            # Save form page for debugging
-            self.debug_manager.save_debug_html(page, "form_page", session.worker_id)
-            
-            # Fill form
-            if self._fill_booking_form(page, session, worker_logger):
-                # Submit form
-                if self._submit_form(page, session, worker_logger):
-                    # SUCCESS!
-                    self.global_stats.success = True
-                    self.stop_event.set()
-                    return
-            
-        except Exception as e:
-            worker_logger.error(f"❌ Attacker error: {e}")
-            session.increment_failure(str(e))
-    
-    def _fill_booking_form(self, page: Page, session: SessionState, worker_logger) -> bool:
-        """
-        [PATCHED] Fill booking form using HUMAN TYPING to trigger validation scripts.
-        Avoids JS injection unless absolutely necessary.
-        """
-        try:
-            worker_logger.info("📝 Filling form (Human Mode)...")
-            
-            # تعريف الحقول والقيم
-            fields = [
-                ("input[name='lastname']", Config.LAST_NAME),
-                ("input[name='firstname']", Config.FIRST_NAME),
-                ("input[name='email']", Config.EMAIL),
-                ("input[name='emailrepeat']", Config.EMAIL),
-                ("input[name='emailRepeat']", Config.EMAIL), # Case sensitive check
-                # الحقول الديناميكية (جواز السفر والهاتف)
-                ("input[name='fields[0].content']", Config.PASSPORT),
-                ("input[name='fields[1].content']", Config.PHONE.replace("+", "00").strip())
-            ]
-            
-            for selector, value in fields:
-                try:
-                    # التحقق من وجود الحقل
-                    if page.locator(selector).count() > 0:
-                        # 1. التركيز (Focus) - مهم جداً لتفعيل السكربتات
-                        page.focus(selector)
-                        # 2. مسح المحتوى القديم (إن وجد)
-                        page.fill(selector, "")
-                        # 3. الكتابة البشرية (Typing)
-                        page.type(selector, value, delay=10) # تأخير بسيط جداً (10ms) للمحاكاة
-                        # 4. الخروج من الحقل (Blur) لتثبيت القيمة
-                        page.evaluate(f"document.querySelector(\"{selector}\").blur()")
-                except Exception as e:
-                    worker_logger.debug(f"Field fill error ({selector}): {e}")
-                    continue
-
-            # اختيار الفئة (Category) - استخدام Smart Targeting
-            if not self.select_category_by_value(page):
-                worker_logger.warning("Category selection failed via Smart Targeting - attempting fallback...")
-                
-                # Fallback: Try selecting by index 1
-                try:
-                    page.evaluate("""
-                        const s = document.querySelector('select');
-                        if(s) { s.selectedIndex = 1; s.dispatchEvent(new Event('change')); }
-                    """)
-                    worker_logger.info("Category selected via JS Fallback (Index 1)")
-                except Exception as e:
-                    worker_logger.error(f"Category selection fallback failed: {e}")
-
-            self.global_stats.forms_filled += 1
-            worker_logger.info("✅ Form filled (Humanized)")
-            return True
-            
-        except Exception as e:
-            worker_logger.error(f"❌ Form fill error: {e}")
-            return False
-    
-    def _fast_inject(self, page: Page, selector: str, value: str) -> bool:
-        """Fast DOM injection bypassing events"""
-        try:
-            page.evaluate(f"""
-                const el = document.querySelector("{selector}");
-                if(el) {{
-                    el.value = "{value}";
-                    el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    el.dispatchEvent(new Event('change', {{bubbles: true}}));
-                }}
-            """)
-            return True
-        except:
-            return False
-    
-    def _submit_form(self, page: Page, session: SessionState, worker_logger, initial_code: Optional[str] = None) -> bool:
-        """
-        [HUMAN-LIKE SUBMISSION] Smart submit with proper waiting and validation.
-        Prevents race conditions by waiting for server response.
-        Optimization: Accepts initial_code to skip redundant solving on first attempt.
-        """
-        max_attempts = 5  # Reduced from 15 (Quality over Quantity)
-        worker_logger.info(f"🚀 STARTING SMART SUBMISSION SEQUENCE...")
-
-        for attempt in range(1, max_attempts + 1):
-            # 1. FIND CAPTCHA INPUT
-            captcha_input = page.locator("input[name='captchaText']").first
-            if not captcha_input.is_visible():
-                # Check if we already succeeded (race win)
-                if self._check_success(page, worker_logger): return True
-                worker_logger.warning("⚠️ Form/Captcha not visible - checking state...")
-                time.sleep(1)
-                continue
-
-            # [TURBO PROTOCOL]
-            # Replaced standard logic with Turbo Injection
-            worker_logger.info("🚀 ENGAGING TURBO INJECTION PROTOCOL")
-            
-            start_time = time.time()
-            submitted = self.solver.solve_booking_captcha_turbo(page, "TURBO_BOOKING")
-            
-            if submitted:
-                worker_logger.info(f"⚡ Turbo Sequence Executed in {time.time() - start_time:.2f}s. Waiting for navigation...")
-                
-                # 1. انتظار أولي للاستقرار (معالجة Race Condition)
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except:
-                    pass
-                
-                # 2. التحقق الآمن مع معالجة خطأ "الصفحة تتغير" (ممتص الصدمات)
-                for check_attempt in range(5):  # 5 محاولات للتأكد
-                    try:
-                        # محاولة التحقق من النجاح
-                        if self._check_success(page, worker_logger):
-                            return True
-                        
-                        # إذا لم نجد نجاحاً، نفحص المحتوى الحالي
-                        content = page.content().lower()
-                        
-                        # مؤشرات النجاح الإضافية
-                        if "appointment number" in content or "termin nummer" in content or "ihre buchung" in content:
-                            worker_logger.critical("🏆 SUCCESS CONFIRMED! Booking markers found!")
-                            self.global_stats.success = True
-                            self.debug_manager.save_critical_screenshot(page, "VICTORY_CONFIRMED", session.worker_id)
-                            self.stop_event.set()
-                            return True
-                        
-                        # مؤشرات الفشل الصلب
-                        if "ref-id" in content or "beginnen sie" in content or "session expired" in content:
-                            worker_logger.error("💀 Hard Failure: Session invalid.")
-                            return False
-                        
-                        # رفض صامت - العودة للنموذج
-                        if page.locator("input[name='lastname']").count() > 0:
-                            worker_logger.warning("❌ Rejected (Soft) - Form reappeared. Retrying...")
-                            break  # نخرج للمحاولة التالية في الحلقة الخارجية
-                        
-                        # إذا وصلنا هنا، الصفحة مستقرة لكن لا نعرف حالتها
-                        worker_logger.info(f"ℹ️ Page stable but unclear state. Attempt {check_attempt+1}/5")
-                        time.sleep(1)
-                        
-                    except Exception as e:
-                        # ممتص الصدمات الرئيسي - معالجة خطأ التنقل
-                        error_msg = str(e).lower()
-                        if "navigating" in error_msg or "context was destroyed" in error_msg or "changing the content" in error_msg:
-                            worker_logger.info(f"🔄 Page is navigating... waiting ({check_attempt+1}/5)")
-                            time.sleep(2)  # انتظار اضافي لتكتمل الصفحة
-                            continue  # المحاولة مرة أخرى
-                        else:
-                            # خطأ حقيقي آخر نرفعه
-                            worker_logger.error(f"❌ Unexpected error during check: {e}")
-                            raise e
-                
-                # إذا انتهت المحاولات الخمس ولم نعرف النتيجة
-                worker_logger.warning("⚠️ Could not determine result after 5 checks - assuming retry needed")
-                continue  # نعود لحلقة المحاولات الرئيسية
-            
-            else:
-                worker_logger.error("❌ Turbo Protocol Failed (Max Retries)")
-                return False
-        
-        return False
-
-    def _check_success(self, page: Page, logger) -> bool:
-        """Helper to scan for success indicators"""
-        content = page.content().lower()
-        success_terms = ["appointment number", "termin nummer", "successfully", "erfolgreich"]
-        
-        for term in success_terms:
-            if term in content:
-                logger.critical(f"🏆 VICTORY! Found marker: '{term}'")
-                self.global_stats.success = True
-                self.debug_manager.save_critical_screenshot(page, "VICTORY", 1)
-                self.stop_event.set()
-                return True
-        return False
-
-    def _refresh_captcha(self, page: Page):
-        """Helper to refresh captcha safely"""
-        try:
-            refresh = page.locator("#appointment_newAppointmentForm_form_newappointment_refreshcaptcha")
-            if refresh.is_visible(): refresh.click()
-            else: self.solver.reload_captcha(page)
-            time.sleep(1.5)
-        except: pass
-    
-    def _handle_success(self):
-        """Handle successful booking"""
-        logger.info("\n" + "=" * 70)
-        logger.info("[SUCCESS] MISSION ACCOMPLISHED - BOOKING SUCCESSFUL!")
-        logger.info("=" * 70)
-        
-        runtime = (datetime.datetime.now() - self.start_time).total_seconds()
-        
-        send_alert(
-            f"ELITE SNIPER V2.0 - SUCCESS!\n"
-            f"[+] Appointment booked!\n"
-            f"Session: {self.session_id}\n"
-            f"Runtime: {runtime:.0f}s\n"
-            f"Stats: {self.global_stats.get_summary()}"
-        )
-    
-    def _handle_completion(self):
-        """Handle completion without success"""
-        logger.info("\n" + "=" * 70)
-        logger.info("[STOP] Session completed without booking")
-        logger.info("=" * 70)
-        
-        runtime = (datetime.datetime.now() - self.start_time).total_seconds()
-        logger.info(f"[TIME] Runtime: {runtime:.0f}s")
-        logger.info(f"[STATS] Final stats: {self.global_stats.get_summary()}")
-
-
-    def _perform_heartbeat(self, page: Page, worker_logger):
-        """
-        [HEARTBEAT] Keep session alive using Soft Refresh.
-        Interacts with lightweight elements to reset server timeout without full reload.
-        """
-        try:
-            # Strategies:
-            # 1. Language Switcher (Best - keeps state)
-            # 2. Month Navigation (Good - rotates)
-            
-            # Try Language Switcher first
-            lang_switch = page.locator("ul.nav.navbar-nav.navbar-right li a").first
-            if lang_switch.count() > 0:
-                worker_logger.info("💓 Sending Heartbeat (Language Toggle)...")
-                lang_switch.click()
-                # Wait briefly for partial update
-                try:
-                    page.wait_for_load_state("networkidle", timeout=5000)
-                except:
-                    pass
-                return True
-                
-            # Fallback: Just simple JS evaluation to touch session? 
-            # (Server needs HTTP request, so JS alone isn't enough usually)
-            
-            worker_logger.warning("⚠️ Heartbeat target not found - skipping")
-            return False
-            
-        except Exception as e:
-            worker_logger.warning(f"⚠️ Heartbeat failed: {e}")
-            return False
-
-    def _inject_booking_script(self, page: Page, url: str):
-        """
-        [TURBO INJECTION] Immediate JS Navigation.
-        Bypasses click delays and UI rendering.
-        """
-        try:
-            # FIX: Use global 'logger' instead of undefined 'self.elite_logger'
-            logger.info(f"💉 INJECTING: window.location = '{url}'")
-            page.evaluate(f"window.location.href = '{url}';")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Injection failed: {e}")
-            return False
-
-    def _persistent_session_loop(self, page: Page, session: SessionState, worker_logger):
-        """
-        [PERSISTENT MODE] The 'Settlement' Strategy.
-        Maintains one session indefinitely using DOM-based navigation.
-        
-        ARCHITECTURE:
-        - Stays on calendar page (closed loop)
-        - Navigates via DOM clicks (preserves session)
-        - Immediate interrupt on slot detection (no delays)
-        
-        ENTRY PATTERN (FIX #3 - Sequential Entry):
-        - Start from BASE URL (no dateStr) to establish session
-        - THEN navigate to target months via DOM clicks
-        """
-        worker_logger.info("🏰 ENTERING PERSISTENT SESSION MODE (SETTLEMENT)")
-        
-        # Get month URLs for reference
-        month_urls = self.generate_month_urls()
-        if not month_urls:
-            worker_logger.error("❌ No month URLs generated")
-            return False
-        
-        # FIX #3: SEQUENTIAL ENTRY PATTERN
-        # Step 1: Clean the base URL (remove any existing dateStr parameter)
-        base_clean = self.base_url.split("&dateStr=")[0] if "&dateStr=" in self.base_url else self.base_url
-        base_clean = base_clean.split("?dateStr=")[0] if "?dateStr=" in base_clean else base_clean
-        
-        worker_logger.info(f"🚪 SEQUENTIAL ENTRY: Starting from BASE URL (current month)")
-        worker_logger.info(f"📍 Base URL: {base_clean[:80]}...")
-        
-        # Step 2: Navigate to base URL first (establishes session)
-        try:
-            page.goto(base_clean, wait_until="domcontentloaded", timeout=60000)
-            worker_logger.info("✅ Base session established")
-        except Exception as e:
-            worker_logger.error(f"❌ Base navigation failed: {e}")
-            return False
-        
-        # Step 3: Wait a moment for session to fully establish
-        time.sleep(1)
-        
-        # Slot detection selectors
-        slot_selectors = [
-            "a.arrow[href*='appointment_showDay']",
-            "td.buchbar a",
-            "a[href*='showDay']"
-        ]
-        
-        # Month navigation patterns (BASED ON USER'S ACTUAL HTML)
-        # Structure: <a onclick="return startCommitRequest();" href="extern/appointment_showMonth.do?...dateStr=17.03.2026"><img src="images/go-next.gif"></a>
-        # FIX: Images are blocked by resource handler, so use href pattern instead
-        # NOTE: Same selector for both - we distinguish by position (index 0=prev, index 1=next)
-        navigation_selector = "a[onclick*='startCommitRequest'][href*='appointment_showMonth']" 
-        
-        current_direction = "forward"  # Track navigation direction
-        captcha_fail_count = 0  # Track consecutive captcha failures
-        MAX_CAPTCHA_FAILS = 5  # Restart session after this many failures
-        
-        worker_logger.info("🔁 Starting closed-loop navigation (DOM-based)")
-        
-        while not self.stop_event.is_set():
-            try:
-                # === STEP 1: SOLVE GATE IF PRESENT ===
-                if page.locator("#appointment_captcha_month").is_visible():
-                    worker_logger.info("🛡️ Gate detected - Solving...")
-                    
-                    # Check if we've failed too many times
-                    if captcha_fail_count >= MAX_CAPTCHA_FAILS:
-                        worker_logger.critical(f"❌ {MAX_CAPTCHA_FAILS} consecutive captcha failures - RESTARTING SESSION")
-                        worker_logger.warning("⚠️ Reloading page to reset captcha difficulty...")
-                        page.reload()
-                        captcha_fail_count = 0
-                        time.sleep(3)
-                        continue
-                    
-                    # DIAGNOSTIC: Capture captcha detection
-                    self.monitor.quick_capture(page, "captcha_detected", category="captcha")
-                    
-                    success, code, _ = self.solver.solve_from_page(page, "ROTATION_GATE")
-                    if success:
-                        # DIAGNOSTIC: Capture before submission
-                        self.monitor.quick_capture(page, f"captcha_submitting_{code}", category="captcha")
-                        
-                        self.solver.submit_captcha(page)
-                        
-                        # TIMING FIX: Wait for server response properly
-                        # Step 1: Wait for page to start responding (DOM ready)
-                        try:
-                            page.wait_for_load_state("domcontentloaded", timeout=3000)
-                        except:
-                            pass
-                        
-                        # Step 2: Navigation pause (let server process)
-                        time.sleep(2)
-                        
-                        # Check if still on captcha page
-                        if page.locator("#appointment_captcha_month").is_visible():
-                            captcha_fail_count += 1  # Increment failure counter
-                            worker_logger.warning(f"⚠️ Still on captcha after wait ({captcha_fail_count}/{MAX_CAPTCHA_FAILS}) - reloading for fresh image...")
-                            # Reload to get fresh captcha (avoid stale image)
-                            page.reload()
-                            time.sleep(2)
-                        else:
-                            # Captcha passed! Reset counter
-                            captcha_fail_count = 0
-                            worker_logger.info("✅ Captcha solved successfully - counter reset")
-                    else:
-                        captcha_fail_count += 1  # OCR failed
-                        worker_logger.error(f"⚠️ OCR failed to solve captcha ({captcha_fail_count}/{MAX_CAPTCHA_FAILS})")
-                
-                # === STEP 2: CHECK SESSION HEALTH ===
-                if not self.check_session_health(page, session, worker_logger):
-                    # DIAGNOSTIC: Capture session death
-                    self.monitor.error_capture(page, "session_died")
-                    self.telegram_reporter.report_error("Session Died", None)
-                    
-                    worker_logger.warning("💀 Session Died - Exiting for restart...")
-                    return False
-                
-                
-                # === STEP 3: SCAN FOR SLOTS (INTELLIGENT VERIFICATION) ===
-                # CRITICAL FIX: Distinguish between day availability and actual slots
-                # - appointment_showDay = Day that MAY have slots
-                # - appointment_showForm = REAL bookable slot
-                
-                # First, check for days with potential availability
-                day_links = page.locator("a.arrow[href*='appointment_showDay']").all()
-                
-                if day_links:
-                    worker_logger.info(f"📅 Found {len(day_links)} days with potential slots - verifying...")
-                    
-                    # Save current month URL for reliable return
-                    current_month_url = page.url
-                    
-                    # Check each day for REAL slots
-                    for idx, day_link in enumerate(day_links):
-                        try:
-                            # Get day URL
-                            href = day_link.get_attribute("href")
-                            if href.startswith("http"):
-                                day_url = href
-                            else:
-                                path = href if href.startswith("/") else f"/{href}"
-                                day_url = f"https://service2.diplo.de{path}"
-                            
-                            worker_logger.info(f"🔍 Checking day {idx+1}/{len(day_links)}: {day_url}")
-                            
-                            # Navigate to day page
-                            self._inject_booking_script(page, day_url)
-                            
-                            # CRITICAL: Wait for page to actually load
-                            try:
-                                page.wait_for_load_state("networkidle", timeout=5000)
-                            except:
-                                pass  # Continue even if timeout
-                            time.sleep(2)  # Increased buffer for Railway
-                            
-                            # Verify we're actually on a day page
-                            if "appointment_showDay" not in page.url:
-                                worker_logger.error(f"⚠️ Navigation failed - Expected day page, got: {page.url}")
-                                # Reload month page explicitly
-                                self._inject_booking_script(page, current_month_url)
-                                time.sleep(2)
-                                continue
-                            
-                            # NOW check for REAL slots (appointment_showForm)
-                            slot_links = page.locator("a.arrow[href*='appointment_showForm']").all()
-                            
-                            if slot_links:
-                                # FOUND REAL SLOTS!
-                                worker_logger.critical(f"💎 REAL SLOTS DETECTED ({len(slot_links)})! IMMEDIATE BOOKING!")
-                                
-                                # Execute booking immediately
-                                result = self._handle_fast_booking(page, session, worker_logger)
-                                
-                                # Return immediately regardless of result
-                                if result:
-                                    return True
-                                else:
-                                    worker_logger.warning("⚠️ Booking attempt failed - restarting patrol")
-                                    return False
-                            else:
-                                worker_logger.info(f"❌ Day {idx+1} has no active slots (already booked)")
-                                
-                                # CRITICAL FIX: Don't use go_back() - it fails after injection!
-                                # Instead, reload month page explicitly
-                                self._inject_booking_script(page, current_month_url)
-                                try:
-                                    page.wait_for_load_state("networkidle", timeout=3000)
-                                except:
-                                    pass
-                                time.sleep(2)
-                                
-                        except Exception as e:
-                            worker_logger.error(f"⚠️ Error checking day {idx+1}: {e}")
-                            # Try to recover - reload month page explicitly
-                            try:
-                                self._inject_booking_script(page, current_month_url)
-                                time.sleep(2)
-                            except:
-                                pass
-                    
-                    # Checked all days, no real slots found
-                    worker_logger.info("📊 All days checked - no active slots available")
-                
-                # === OLD FALLBACK: Check for alternative slot patterns ===
-                # (Keep for compatibility with different page layouts)
-                for selector in ["td.buchbar a", "a[href*='appointment_showForm']"]:
-                    elements = page.locator(selector).all()
-                    if elements:
-                        worker_logger.critical(f"💎 SLOTS DETECTED via fallback ({len(elements)})! IMMEDIATE BOOKING!")
-                        
-                        target_element = elements[0]
-                        href = target_element.get_attribute("href")
-                        
-                        if href.startswith("http"):
-                            full_url = href
-                        else:
-                            path = href if href.startswith("/") else f"/{href}"
-                            full_url = f"https://service2.diplo.de{path}"
-                        
-                        self._inject_booking_script(page, full_url)
-                        result = self._handle_fast_booking(page, session, worker_logger)
-                        
-                        if result:
-                            return True
-                        else:
-                            worker_logger.warning("⚠️ Booking attempt failed - restarting patrol")
-                            return False
-                
-                # === STEP 4: DOM-BASED NAVIGATION (Session Preservation) ===
-                navigated = False
-                
-                if current_direction == "forward":
-                    # Try to click "next month" button (SECOND navigation link)
-                    try:
-                        links = page.locator(navigation_selector).all()
-                        if len(links) >= 2:
-                            # Second link is "next month" (first is "previous month")
-                            btn = links[1]
-                            worker_logger.info(f"→ Clicking NEXT month button")
-                            btn.click()
-                            page.wait_for_load_state("domcontentloaded", timeout=5000)
-                            navigated = True
-                        else:
-                            worker_logger.debug(f"Navigation links found: {len(links)} (need 2+)")
-                    except Exception as e:
-                        worker_logger.debug(f"Forward navigation failed: {e}")
-                    
-                    # If we navigated forward 2-3 times, reverse direction
-                    if navigated:
-                        # Simple heuristic: switch direction periodically
-                        if random.random() < 0.3:  # 30% chance to reverse
-                            current_direction = "backward"
-                            worker_logger.info("🔄 Reversing direction")
-                
-                elif current_direction == "backward":
-                    # Try to click "previous month" button (FIRST navigation link)
-                    try:
-                        links = page.locator(navigation_selector).all()
-                        if len(links) >= 2:
-                            # First link is "previous month"
-                            btn = links[0]
-                            worker_logger.info(f"← Clicking PREVIOUS month button")
-                            btn.click()
-                            page.wait_for_load_state("domcontentloaded", timeout=5000)
-                            navigated = True
-                        else:
-                            worker_logger.debug(f"Navigation links found: {len(links)} (need 2+)")
-                    except Exception as e:
-                        worker_logger.debug(f"Backward navigation failed: {e}")
-                    
-                    if navigated:
-                        if random.random() < 0.3:
-                            current_direction = "forward"
-                            worker_logger.info("🔄 Reversing direction")
-                
-                # === FALLBACK: URL Navigation if buttons not found ===
-                if not navigated:
-                    # BUGFIX: Don't navigate away if we're on captcha page
-                    # The captcha was already submitted via Enter key
-                    # Server will redirect if correct, or show error if wrong
-                    try:
-                        on_captcha = page.locator("input[name='captchaText']").count() > 0
-                    except:
-                        on_captcha = False
-                    
-                    if on_captcha:
-                        worker_logger.info("🛡️ On gate page - waiting for server response...")
-                        # Wait for server to process captcha submission
-                        time.sleep(2)
-                        
-                        # BUGFIX #2: Check if still on captcha (OCR failed or wrong answer)
-                        try:
-                            still_on_captcha = page.locator("input[name='captchaText']").count() > 0
-                        except:
-                            still_on_captcha = False
-                        
-                        if still_on_captcha:
-                            # OCR likely failed (TOO_SHORT/TOO_LONG) - reload for fresh captcha
-                            worker_logger.warning("⚠️ Still on captcha after wait - reloading for fresh image...")
-                            try:
-                                page.reload(wait_until="domcontentloaded", timeout=10000)
-                                time.sleep(1)
-                            except Exception as e:
-                                worker_logger.error(f"❌ Page reload failed: {e}")
-                    else:
-                        # We're on calendar but buttons missing - use URL fallback
-                        worker_logger.warning("⚠️ DOM buttons not found - using URL fallback")
-                        random_url = random.choice(month_urls)
-                        try:
-                            page.goto(random_url, wait_until="domcontentloaded", timeout=15000)
-                        except:
-                            worker_logger.warning("⚠️ Fallback navigation timeout")
-                
-                # === STEP 5: BRIEF PAUSE (Heartbeat) ===
-                # Only sleep if NO slots were found
-                sleep_time = random.uniform(3, 8)  # Shorter intervals
-                worker_logger.info(f"💓 Heartbeat pause: {sleep_time:.1f}s")
-                time.sleep(sleep_time)
-                
-            except Exception as e:
-                worker_logger.error(f"⚠️ Loop error: {e}")
-                time.sleep(5)
-        
-        return False
-
-    def _handle_fast_booking(self, page: Page, session: SessionState, worker_logger) -> bool:
-        """
-        Handle the booking process after Instant Injection.
-        """
-        worker_logger.info("⚡ FAST BOOKING SEQUENCE INITIATED")
-        # Reuse existing logic but optimized
-        try:
-             # We assume we just injected navigation to Day Page
-             # Wait for load
-             page.wait_for_load_state("domcontentloaded", timeout=10000)
-             
-             # Reuse _process_day_page logic 
-             return self._process_day_page(page, session, page.url, worker_logger)
-             
-        except Exception as e:
-            worker_logger.error(f"❌ Fast booking failed: {e}")
-            return False
 
 if __name__ == "__main__":
     sniper = EliteSniperV2()
     success = sniper.run()
     sys.exit(0 if success else 1)
+#END
