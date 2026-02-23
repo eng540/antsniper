@@ -1,6 +1,7 @@
 """
-Elite Sniper v2.0 - Production Grade Captcha System
+Elite Sniper v3.0 - Production Grade Captcha System
 Refactored for 100% Local OCR (ddddocr) & State-Aware Synchronization
+[HOTFIX] Applied non-destructive OpenCV preprocessing & Extended DOM Polling
 """
 
 import time
@@ -115,6 +116,8 @@ class EnhancedCaptchaSolver:
     - Safe checking without failures
     - Black captcha detection
     - Strict length validation for Turbo Booking
+    - [HOTFIX] Non-destructive OpenCV filtering to fix TOO_SHORT errors
+    - [HOTFIX] Extended Base64 DOM polling
     """
     
     def __init__(self, mode: str = "HYBRID", c2_instance=None):
@@ -210,25 +213,29 @@ class EnhancedCaptchaSolver:
     
     def _extract_base64_captcha(self, page: Page, location: str = "EXTRACT") -> Optional[bytes]:
         try:
+            # [HOTFIX] Explicit wait for the element to exist in DOM before querying attributes
+            try:
+                page.wait_for_selector("captcha > div", timeout=5000)
+            except:
+                logger.debug(f"[{location}] Captcha div did not appear in DOM within timeout.")
+                return None
+                
             captcha_div = page.locator("captcha > div").first
             
-            if not captcha_div.is_visible(timeout=2000):
-                logger.debug(f"[{location}] Captcha div not visible")
-                return None
-            
-            max_attempts = 10
+            # [HOTFIX] Extended polling to 20 attempts with 0.2s sleep (4 seconds total max wait)
+            max_attempts = 20
             for attempt in range(max_attempts):
                 style = captcha_div.get_attribute("style")
                 
-                if not style:
-                    time.sleep(0.1)
+                if not style or "base64" not in style:
+                    time.sleep(0.2)
                     continue
                 
                 pattern = r"url\(['\"]?data:image/[^;]+;base64,([A-Za-z0-9+/=]+)['\"]?\)"
                 match = re.search(pattern, style)
                 
                 if not match:
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                     continue
                 
                 base64_data = match.group(1)
@@ -241,17 +248,17 @@ class EnhancedCaptchaSolver:
                     image_bytes = base64.b64decode(base64_data)
                 except Exception as decode_err:
                     logger.warning(f"[{location}] Base64 decode failed: {decode_err}")
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                     continue
                 
                 if len(image_bytes) < 2000:
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                     continue
                 
                 logger.info(f"[{location}] ✅ Extracted captcha from base64 ({len(image_bytes)} bytes)")
                 return image_bytes
             
-            logger.warning(f"[{location}] ⚠️ Polling timeout - no valid captcha image found")
+            logger.warning(f"[{location}] ⚠️ Polling timeout - base64 string never fully loaded")
             return None
             
         except Exception as e:
@@ -316,6 +323,11 @@ class EnhancedCaptchaSolver:
         return False, "INVALID"
 
     def _preprocess_image(self, image_bytes: bytes) -> bytes:
+        """
+        [FACT-BASED HOTFIX]
+        Removed destructive thresholding and morphology that erased thin characters 
+        and caused TOO_SHORT errors. Now uses only resizing and CLAHE contrast enhancement.
+        """
         if not OPENCV_AVAILABLE:
             return image_bytes
 
@@ -323,19 +335,20 @@ class EnhancedCaptchaSolver:
             nparr = np.frombuffer(image_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
+            # 1. Resize slightly to help CNN detect features without distortion
+            img = cv2.resize(img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+            
+            # 2. Convert to Grayscale
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray = cv2.resize(gray, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
             
+            # 3. Enhance contrast locally (CLAHE) - Preserves thin lines perfectly
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            gray = clahe.apply(gray)
+            enhanced = clahe.apply(gray)
             
-            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
-            kernel = np.ones((2,2), np.uint8)
-            opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
-            
-            _, encoded_img = cv2.imencode('.png', opening)
+            # Encode back to PNG for the OCR engine
+            _, encoded_img = cv2.imencode('.png', enhanced)
             return encoded_img.tobytes()
+            
         except Exception as e:
             logger.debug(f"Image preprocessing failed: {e}")
             return image_bytes
@@ -349,11 +362,6 @@ class EnhancedCaptchaSolver:
         return cleaned
 
     def solve(self, image_bytes: bytes, location: str = "SOLVE") -> Tuple[str, str]:
-        """
-        [FACT-BASED FIX]
-        يعتمد 100% على المحرك المحلي (ddddocr) مع المعالجة المسبقة.
-        تم إلغاء التوازي (Thread Pooling) وخدمات CapSolver تماماً.
-        """
         if self.manual_only:
              logger.info(f"[{location}] Manual Mode active - Skipping OCR")
              return "", "MANUAL_REQUIRED"
@@ -654,11 +662,6 @@ class EnhancedCaptchaSolver:
         return False, None, "MAX_ATTEMPTS_REACHED"
 
     def get_valid_captcha_turbo(self, page: Page, location: str = "BOOKING_TURBO") -> Optional[str]:
-        """
-        [FACT-BASED FIX]
-        هذه الدالة تجلب الصورة، تفك الشفرة محلياً، وإذا كان الطول ليس 6 تقوم بتحديث الصورة.
-        *لا تقوم بالنقر على زر الإرسال أبداً*. ترجع النص فقط للعقل المدبر لضمان التزامن السليم.
-        """
         max_retries = 15
         REFRESH_ID = "appointment_newAppointmentForm_form_newappointment_refreshcaptcha"
         
