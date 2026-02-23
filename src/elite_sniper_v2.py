@@ -1,12 +1,13 @@
 """
-Elite Sniper v2.0 - Production-Grade Multi-Session Appointment Booking System
+Elite Sniper v3.3 - Production-Grade Multi-Session Appointment Booking System
 
 Integrates best features from:
 - Elite Sniper: Multi-session architecture, Scout/Attacker pattern, Scheduled activation
 - KingSniperV12: State Machine, Soft Recovery, Safe Captcha Check, Debug utilities
 
 Refactored for:
-- Smart Synchronized Strike (DOM Awareness)
+- [FIX] Targeted Scope (Offsets 2, 3, 4 only) -> Months 3, 4, 5
+- [FIX] Robust Submit (Click instead of Enter)
 - Anti-Zombie memory management
 - 100% Local OCR logic integration
 """
@@ -53,7 +54,7 @@ logger = logging.getLogger("EliteSniperV2")
 
 
 class EliteSniperV2:
-    VERSION = "2.0.1-SYNC"
+    VERSION = "3.3.0-TARGET-345"
     
     def __init__(self, run_mode: str = "AUTO"):
         self.run_mode = run_mode
@@ -65,7 +66,7 @@ class EliteSniperV2:
         
         self._validate_config()
         
-        self.session_id = f"elite_v2_{int(time.time())}_{random.randint(1000, 9999)}"
+        self.session_id = f"elite_v3_{int(time.time())}_{random.randint(1000, 9999)}"
         self.start_time = datetime.datetime.now()
         
         self.system_state = SystemState.STANDBY
@@ -354,7 +355,8 @@ class EliteSniperV2:
             today = datetime.datetime.now().date()
             base_clean = self.base_url.split("&dateStr=")[0] if "&dateStr=" in self.base_url else self.base_url
             urls = []
-            priority_offsets = [4, 5, 2, 3] 
+            # [CONFIGURED SCOPE] Search Months 3, 4, 5 only
+            priority_offsets = [2, 3, 4] 
             
             for offset in priority_offsets:
                 future_date = today + datetime.timedelta(days=30 * offset)
@@ -454,12 +456,6 @@ class EliteSniperV2:
             return False
 
     def _submit_form(self, page: Page, session: SessionState, worker_logger, initial_code: Optional[str] = None) -> bool:
-        """
-        [FACT-BASED FIX: Smart Synchronized Strike]
-        1. يتأكد عبر DOM أن البيانات (الجواز/الغرض) موجودة فعلياً.
-        2. يطلب كابتشا دقيقة (6 أحرف) من المحرك.
-        3. يحقن ويرسل، ثم ينتظر استجابة الخادم بدقة.
-        """
         worker_logger.info(f"🚀 STARTING SMART SYNCHRONIZED SUBMISSION...")
         
         INPUT_ID = "appointment_newAppointmentForm_captchaText"
@@ -618,7 +614,7 @@ class EliteSniperV2:
                         consecutive_failures += 1
                         self.global_stats.captchas_failed += 1
                         if consecutive_failures >= 5:
-                             time.sleep(120)
+                             time.sleep(60)
                              return False
 
                     success, code, status = self.solver.solve_from_page(page, f"MONTH_{attempt}")
@@ -626,23 +622,32 @@ class EliteSniperV2:
                     if not success:
                         if not is_wrong_code: consecutive_failures += 1
                         if consecutive_failures >= 5:
-                             time.sleep(120)
+                             time.sleep(60)
                              return False 
                         try:
                             refresh = page.locator("#appointment_newAppointmentForm_form_newappointment_refreshcaptcha")
                             if refresh.is_visible(): refresh.click()
                             else: self.solver.reload_captcha(page)
-                            time.sleep(1.5)
+                            time.sleep(1.0)
                         except: pass
                         continue
                         
-                    self.solver.submit_captcha(page, code)
+                    # [FIX] Robust Submission: Try clicking the button first, then Enter as fallback
+                    try:
+                        submit_btn = page.locator("input[type='submit'], button[type='submit']").first
+                        if submit_btn.is_visible():
+                            submit_btn.click(timeout=3000)
+                        else:
+                            page.keyboard.press("Enter")
+                    except:
+                        page.keyboard.press("Enter")
+                        
                     try:
                         page.wait_for_selector("div.global-error, a[href*='appointment_showDay'], h2:has-text('Please select')", timeout=8000)
                     except:
                         try: page.wait_for_load_state("networkidle", timeout=5000)
                         except: pass
-                    time.sleep(1.5)  
+                    time.sleep(0.5)  
                 else:
                     return False
             
@@ -719,7 +724,7 @@ class EliteSniperV2:
                         if self.stop_event.is_set(): break
                         if self._process_month_page(page, session, url, worker_logger): return True  
                         if getattr(session, 'consecutive_network_failures', 0) >= 2: break
-                        time.sleep(random.uniform(1, 2))
+                        time.sleep(random.uniform(0.5, 1.5))
                     
                     sleep_time = self.get_sleep_interval()
                     time.sleep(sleep_time)
@@ -799,4 +804,3 @@ if __name__ == "__main__":
     sniper = EliteSniperV2()
     success = sniper.run()
     sys.exit(0 if success else 1)
-#END
