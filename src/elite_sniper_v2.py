@@ -1,15 +1,15 @@
 """
-Elite Sniper v3.3 - Production-Grade Multi-Session Appointment Booking System
+Elite Sniper v3.6 - Production-Grade Multi-Session Appointment Booking System
 
 Integrates best features from:
-- Elite Sniper: Multi-session architecture, Scout/Attacker pattern, Scheduled activation
-- KingSniperV12: State Machine, Soft Recovery, Safe Captcha Check, Debug utilities
+- Elite Sniper: Multi-session architecture, Scout/Attacker pattern
+- KingSniperV12: State Machine, Soft Recovery, Safe Captcha Check
 
-Refactored for:
-- [FIX] Targeted Scope (Offsets 2, 3, 4 only) -> Months 3, 4, 5
-- [FIX] Robust Submit (Click instead of Enter)
-- Anti-Zombie memory management
-- 100% Local OCR logic integration
+Refactored based on Manus AI Report:
+- [SCOPE] Strict targeting of Months 3, 4, 5 (Offsets 2, 3, 4).
+- [FIX] Resource Leaks: Robust finally blocks for browser/context cleanup.
+- [FIX] JS Events: Force dispatch events on select elements to ensure server sync.
+- [FIX] Navigation Handling: Better tolerance for page reloads.
 """
 
 import time
@@ -36,7 +36,7 @@ from .session_state import (
     SessionRole, Incident, IncidentManager, IncidentType, IncidentSeverity
 )
 from .captcha import EnhancedCaptchaSolver
-from .notifier import send_alert, send_photo, send_success_notification, send_status_update
+from .notifier import send_alert
 from .debug_utils import DebugManager
 from .page_flow import PageFlowDetector
 from .diagnostic import ForensicMonitor, OperationTracker, TelegramReporter
@@ -54,7 +54,7 @@ logger = logging.getLogger("EliteSniperV2")
 
 
 class EliteSniperV2:
-    VERSION = "3.3.0-TARGET-345"
+    VERSION = "3.6.0-MANUS-FIXED"
     
     def __init__(self, run_mode: str = "AUTO"):
         self.run_mode = run_mode
@@ -355,7 +355,9 @@ class EliteSniperV2:
             today = datetime.datetime.now().date()
             base_clean = self.base_url.split("&dateStr=")[0] if "&dateStr=" in self.base_url else self.base_url
             urls = []
-            # [CONFIGURED SCOPE] Search Months 3, 4, 5 only
+            
+            # [CRITICAL FIX] Strict Scope: Only Months 3, 4, 5 (Offsets 2, 3, 4)
+            # Offset 0 = Current, 1 = Next
             priority_offsets = [2, 3, 4] 
             
             for offset in priority_offsets:
@@ -368,6 +370,10 @@ class EliteSniperV2:
             return []
     
     def select_category_by_value(self, page: Page) -> bool:
+        """
+        [FIX] Enhanced category selection with explicit JS event dispatching.
+        This ensures the server registers the selection (resolves 'Session-Dependent UI Events' issue).
+        """
         try:
             selects = page.locator("select").all()
             if not selects: return False
@@ -386,38 +392,45 @@ class EliteSniperV2:
                             })
                 except Exception: continue
             
+            target_opt = None
+            
+            # 1. Try finding by keyword
             for priority, keyword in enumerate(Config.TARGET_KEYWORDS, start=1):
                 keyword_lower = keyword.lower()
                 for opt in all_options:
                     if keyword_lower in opt["text_lower"]:
-                        try:
-                            opt["select"].select_option(value=opt["value"])
-                            page.evaluate("""
-                                const selects = document.querySelectorAll('select');
-                                selects.forEach(s => {
-                                    s.dispatchEvent(new Event('input', { bubbles: true }));
-                                    s.dispatchEvent(new Event('change', { bubbles: true }));
-                                });
-                            """)
-                            return True
-                        except Exception: continue
+                        target_opt = opt
+                        break
+                if target_opt: break
             
-            valid_options = [opt for opt in all_options if opt["value"]]
-            if len(valid_options) >= 2:
-                fallback_opt = valid_options[1] 
+            # 2. Fallback
+            if not target_opt:
+                valid_options = [opt for opt in all_options if opt["value"]]
+                if len(valid_options) >= 2:
+                    target_opt = valid_options[1]
+            
+            # 3. Execution with JS Events
+            if target_opt:
                 try:
-                    fallback_opt["select"].select_option(value=fallback_opt["value"])
+                    target_opt["select"].select_option(value=target_opt["value"])
+                    
+                    # [CRITICAL] Force Dispatch Events
                     page.evaluate("""
                         const selects = document.querySelectorAll('select');
                         selects.forEach(s => {
                             s.dispatchEvent(new Event('input', { bubbles: true }));
                             s.dispatchEvent(new Event('change', { bubbles: true }));
+                            s.blur(); // Trigger blur to ensure validation
                         });
                     """)
                     return True
-                except Exception: pass
+                except Exception as e:
+                    logger.error(f"Error dispatching events: {e}")
+                    return False
+            
             return False
-        except Exception:
+        except Exception as e:
+            logger.error(f"Select category failed: {e}")
             return False
 
     def _fill_booking_form(self, page: Page, session: SessionState, worker_logger) -> bool:
@@ -443,10 +456,14 @@ class EliteSniperV2:
                 except Exception: continue
 
             if not self.select_category_by_value(page):
+                # Fallback JS injection if python selection fails
                 try:
                     page.evaluate("""
                         const s = document.querySelector('select');
-                        if(s) { s.selectedIndex = 1; s.dispatchEvent(new Event('change')); }
+                        if(s) { 
+                            s.selectedIndex = 1; 
+                            s.dispatchEvent(new Event('change', { bubbles: true })); 
+                        }
                     """)
                 except Exception: pass
 
@@ -699,6 +716,8 @@ class EliteSniperV2:
 
     def _run_single_session(self, browser: Browser, worker_id: int = 1):
         worker_logger = logging.getLogger(f"Worker-{worker_id}")
+        context = None
+        page = None
         
         try:
             proxy = Config.PROXIES[worker_id % len(Config.PROXIES)] if Config.PROXIES else None
@@ -740,12 +759,17 @@ class EliteSniperV2:
                         
                 except Exception as cycle_error:
                     try:
-                        page.close()
-                        context.close()
+                        if page: page.close()
+                        if context: context.close()
                     except: pass
-                    context, page, session = self.create_context(browser, worker_id, proxy)
-                    self.current_page = page  
-                    session.role = SessionRole.SCOUT
+                    # Recreate context safely
+                    try:
+                        context, page, session = self.create_context(browser, worker_id, proxy)
+                        self.current_page = page  
+                        session.role = SessionRole.SCOUT
+                    except Exception as recreate_err:
+                        worker_logger.error(f"Critical fail recreating session: {recreate_err}")
+                        time.sleep(5)
 
         except Exception as e:
             worker_logger.error(f"❌ Critical Session Error: {e}", exc_info=True)
@@ -754,8 +778,10 @@ class EliteSniperV2:
         finally:
             worker_logger.info("🧹 Final cleanup of single session...")
             try: 
-                if 'page' in locals() and page: page.close()
-                if 'context' in locals() and context: context.close()
+                if page: page.close()
+            except: pass
+            try:
+                if context: context.close()
             except: pass
             
         return False  
@@ -769,17 +795,21 @@ class EliteSniperV2:
             send_alert(f"[Elite Sniper v{self.VERSION} Started]")
             
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=Config.HEADLESS, args=Config.BROWSER_ARGS, timeout=90000)
-                self.browser = browser  
-                worker_id = 1  
-                
+                # Add cleanup logic for the browser itself
+                self.browser = None
                 try:
-                    self._run_single_session(browser, worker_id=worker_id)
-                except Exception as e:
-                    logger.error(f"[SESSION ERROR] {e}")
+                    self.browser = p.chromium.launch(headless=Config.HEADLESS, args=Config.BROWSER_ARGS, timeout=90000)
+                    worker_id = 1  
+                    self._run_single_session(self.browser, worker_id=worker_id)
+                finally:
+                    # [FIX] Ensure browser closes to prevent zombie processes
+                    if self.browser:
+                        try:
+                            self.browser.close()
+                            logger.info("✅ Browser closed successfully.")
+                        except: pass
                 
                 self.ntp_sync.stop_background_sync()
-                browser.close()
                 
                 final_stats = self.global_stats.to_dict()
                 self.debug_manager.save_stats(final_stats, "final_stats.json")
@@ -796,6 +826,7 @@ class EliteSniperV2:
             self.ntp_sync.stop_background_sync()
             return False
         except Exception as e:
+            logger.critical(f"Unhandled fatal error: {e}")
             return False
         finally:
             self.cleanup()
