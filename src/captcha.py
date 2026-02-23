@@ -1,7 +1,8 @@
 """
-Elite Sniper v3.0 - Production Grade Captcha System
+Elite Sniper v3.1 - Production Grade Captcha System
 Refactored for 100% Local OCR (ddddocr) & State-Aware Synchronization
-[HOTFIX] Applied non-destructive OpenCV preprocessing & Extended DOM Polling
+[HOTFIX] Applied non-destructive OpenCV preprocessing 
+[HOTFIX] Patient Sniper Protocol (Extended Wait for Booking Captcha)
 """
 
 import time
@@ -117,7 +118,7 @@ class EnhancedCaptchaSolver:
     - Black captcha detection
     - Strict length validation for Turbo Booking
     - [HOTFIX] Non-destructive OpenCV filtering to fix TOO_SHORT errors
-    - [HOTFIX] Extended Base64 DOM polling
+    - [HOTFIX] Extended Base64 DOM polling & Patient Sniper Protocol
     """
     
     def __init__(self, mode: str = "HYBRID", c2_instance=None):
@@ -213,7 +214,6 @@ class EnhancedCaptchaSolver:
     
     def _extract_base64_captcha(self, page: Page, location: str = "EXTRACT") -> Optional[bytes]:
         try:
-            # [HOTFIX] Explicit wait for the element to exist in DOM before querying attributes
             try:
                 page.wait_for_selector("captcha > div", timeout=5000)
             except:
@@ -222,7 +222,6 @@ class EnhancedCaptchaSolver:
                 
             captcha_div = page.locator("captcha > div").first
             
-            # [HOTFIX] Extended polling to 20 attempts with 0.2s sleep (4 seconds total max wait)
             max_attempts = 20
             for attempt in range(max_attempts):
                 style = captcha_div.get_attribute("style")
@@ -323,11 +322,6 @@ class EnhancedCaptchaSolver:
         return False, "INVALID"
 
     def _preprocess_image(self, image_bytes: bytes) -> bytes:
-        """
-        [FACT-BASED HOTFIX]
-        Removed destructive thresholding and morphology that erased thin characters 
-        and caused TOO_SHORT errors. Now uses only resizing and CLAHE contrast enhancement.
-        """
         if not OPENCV_AVAILABLE:
             return image_bytes
 
@@ -335,17 +329,13 @@ class EnhancedCaptchaSolver:
             nparr = np.frombuffer(image_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
-            # 1. Resize slightly to help CNN detect features without distortion
             img = cv2.resize(img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
             
-            # 2. Convert to Grayscale
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             
-            # 3. Enhance contrast locally (CLAHE) - Preserves thin lines perfectly
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
             enhanced = clahe.apply(gray)
             
-            # Encode back to PNG for the OCR engine
             _, encoded_img = cv2.imencode('.png', enhanced)
             return encoded_img.tobytes()
             
@@ -662,23 +652,34 @@ class EnhancedCaptchaSolver:
         return False, None, "MAX_ATTEMPTS_REACHED"
 
     def get_valid_captcha_turbo(self, page: Page, location: str = "BOOKING_TURBO") -> Optional[str]:
-        max_retries = 15
+        """
+        [FACT-BASED FIX: Patient Sniper Protocol]
+        ينتظر بذكاء حتى يتم تحميل الـ Base64 في الـ DOM ولا يستسلم بعد ثانية واحدة.
+        """
+        max_retries = 25
         REFRESH_ID = "appointment_newAppointmentForm_form_newappointment_refreshcaptcha"
         
+        try:
+            page.wait_for_selector("captcha > div", timeout=10000)
+        except Exception as e:
+            logger.error(f"[{location}] Captcha element did not render in DOM: {e}")
+            return None
+
         for attempt in range(max_retries):
             try:
                 element = page.query_selector("captcha > div")
                 if not element:
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                     continue
 
                 style = element.get_attribute("style")
                 if not style or "base64" not in style:
-                    time.sleep(0.1)
+                    time.sleep(0.3) 
                     continue
                 
                 match = re.search(r'base64,([^"]+)', style)
                 if not match:
+                    time.sleep(0.2)
                     continue
                     
                 base64_data = match.group(1)
@@ -690,7 +691,7 @@ class EnhancedCaptchaSolver:
                     image_bytes = base64.b64decode(base64_data)
                 except Exception as decode_error:
                     logger.warning(f"[{location}] Base64 decode error - retrying...")
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                     continue
                 
                 enhanced_bytes = self._preprocess_image(image_bytes)
@@ -700,7 +701,7 @@ class EnhancedCaptchaSolver:
                 if len(result) != 6:
                     logger.warning(f"[{location}] Invalid Length ({len(result)}) -> '{result}'. REFRESHING.")
                     page.evaluate(f"document.getElementById('{REFRESH_ID}').click()")
-                    time.sleep(0.5) 
+                    time.sleep(1.0) 
                     continue
                 
                 logger.critical(f"[{location}] ✅ Valid OCR (6) -> '{result}'. Returning to Commander.")
