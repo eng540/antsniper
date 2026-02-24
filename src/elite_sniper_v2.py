@@ -1,14 +1,15 @@
 """
-Elite Sniper v3.7 - Production-Grade Multi-Session Appointment Booking System
+Elite Sniper v3.8 - Production-Grade Multi-Session Appointment Booking System
 
 Integrates best features from:
 - Elite Sniper: Multi-session architecture, Scout/Attacker pattern
 - KingSniperV12: State Machine, Soft Recovery
 
 Refactored for:
-- [FIX] ANTI-FREEZE: Added critical browser args for Docker stability.
-- [FIX] RACE CONDITION: Added 3s wait after submit to prevent loop.
+- [FIX] RESURRECTION LOOP: Automatically restarts dead browsers after long runs.
+- [FIX] RACE CONDITION: 3s wait after submit.
 - [SCOPE] Strict targeting of Months 3, 4, 5.
+- [FIX] JS Events: Force dispatch events on select elements.
 """
 
 import time
@@ -53,7 +54,7 @@ logger = logging.getLogger("EliteSniperV2")
 
 
 class EliteSniperV2:
-    VERSION = "3.7.0-ANTI-FREEZE"
+    VERSION = "3.8.0-RESURRECTION"
     
     def __init__(self, run_mode: str = "AUTO"):
         self.run_mode = run_mode
@@ -648,7 +649,7 @@ class EliteSniperV2:
                         except: pass
                         continue
                         
-                    # [FIX] Robust Submission with Wait Strategy
+                    # [FIX] Robust Submission: Try clicking the button first, then Enter as fallback
                     try:
                         submit_btn = page.locator("input[type='submit'], button[type='submit']").first
                         if submit_btn.is_visible():
@@ -666,7 +667,7 @@ class EliteSniperV2:
                     except:
                         try: page.wait_for_load_state("networkidle", timeout=5000)
                         except: pass
-                        
+                    
                 else:
                     return False
             
@@ -766,14 +767,9 @@ class EliteSniperV2:
                         if page: page.close()
                         if context: context.close()
                     except: pass
-                    # Recreate context safely
-                    try:
-                        context, page, session = self.create_context(browser, worker_id, proxy)
-                        self.current_page = page  
-                        session.role = SessionRole.SCOUT
-                    except Exception as recreate_err:
-                        worker_logger.error(f"Critical fail recreating session: {recreate_err}")
-                        time.sleep(5)
+                    # If this fails, let it propagate to the main loop to restart browser
+                    worker_logger.error(f"Cycle error: {cycle_error}")
+                    return False 
 
         except Exception as e:
             worker_logger.error(f"❌ Critical Session Error: {e}", exc_info=True)
@@ -814,29 +810,36 @@ class EliteSniperV2:
                 # Merge with config args if needed, but ensure critical ones are present
                 launch_args = list(set(Config.BROWSER_ARGS + browser_args))
                 
-                self.browser = None
-                try:
-                    self.browser = p.chromium.launch(headless=Config.HEADLESS, args=launch_args, timeout=90000)
-                    worker_id = 1  
-                    self._run_single_session(self.browser, worker_id=worker_id)
-                finally:
-                    if self.browser:
-                        try:
-                            self.browser.close()
-                            logger.info("✅ Browser closed successfully.")
-                        except: pass
-                
+                # [CRITICAL FIX] The Resurrection Loop
+                # This loop ensures the entire browser restarts if it crashes
+                while not self.stop_event.is_set():
+                    self.browser = None
+                    try:
+                        logger.info("🔄 Launching new browser instance...")
+                        self.browser = p.chromium.launch(headless=Config.HEADLESS, args=launch_args, timeout=90000)
+                        
+                        worker_id = 1  
+                        # _run_single_session returns True if successful, False if crashed
+                        if self._run_single_session(self.browser, worker_id=worker_id):
+                            logger.info("✅ Mission Accomplished!")
+                            return True
+                            
+                    except Exception as e:
+                        logger.error(f"⚠️ Browser crashed or session failed: {e}")
+                    finally:
+                        if self.browser:
+                            try:
+                                self.browser.close()
+                                logger.info("🧹 Dead browser cleaned up.")
+                            except: pass
+                        
+                    # Cooldown before resurrection
+                    if not self.stop_event.is_set():
+                        logger.info("⏳ Cooling down for 5 seconds before resurrection...")
+                        time.sleep(5)
+
                 self.ntp_sync.stop_background_sync()
-                
-                final_stats = self.global_stats.to_dict()
-                self.debug_manager.save_stats(final_stats, "final_stats.json")
-                self.debug_manager.create_session_report(final_stats)
-                
-                if self.global_stats.success:
-                    logger.info("[SUCCESS] MISSION ACCOMPLISHED")
-                    return True
-                else:
-                    return False
+                return False
                 
         except KeyboardInterrupt:
             self.stop_event.set()
