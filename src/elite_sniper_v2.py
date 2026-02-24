@@ -1,15 +1,14 @@
 """
-Elite Sniper v3.6 - Production-Grade Multi-Session Appointment Booking System
+Elite Sniper v3.7 - Production-Grade Multi-Session Appointment Booking System
 
 Integrates best features from:
 - Elite Sniper: Multi-session architecture, Scout/Attacker pattern
-- KingSniperV12: State Machine, Soft Recovery, Safe Captcha Check
+- KingSniperV12: State Machine, Soft Recovery
 
-Refactored based on Manus AI Report:
-- [SCOPE] Strict targeting of Months 3, 4, 5 (Offsets 2, 3, 4).
-- [FIX] Resource Leaks: Robust finally blocks for browser/context cleanup.
-- [FIX] JS Events: Force dispatch events on select elements to ensure server sync.
-- [FIX] Navigation Handling: Better tolerance for page reloads.
+Refactored for:
+- [FIX] ANTI-FREEZE: Added critical browser args for Docker stability.
+- [FIX] RACE CONDITION: Added 3s wait after submit to prevent loop.
+- [SCOPE] Strict targeting of Months 3, 4, 5.
 """
 
 import time
@@ -54,7 +53,7 @@ logger = logging.getLogger("EliteSniperV2")
 
 
 class EliteSniperV2:
-    VERSION = "3.6.0-MANUS-FIXED"
+    VERSION = "3.7.0-ANTI-FREEZE"
     
     def __init__(self, run_mode: str = "AUTO"):
         self.run_mode = run_mode
@@ -649,7 +648,7 @@ class EliteSniperV2:
                         except: pass
                         continue
                         
-                    # [FIX] Robust Submission: Try clicking the button first, then Enter as fallback
+                    # [FIX] Robust Submission with Wait Strategy
                     try:
                         submit_btn = page.locator("input[type='submit'], button[type='submit']").first
                         if submit_btn.is_visible():
@@ -659,12 +658,15 @@ class EliteSniperV2:
                     except:
                         page.keyboard.press("Enter")
                         
+                    # [CRITICAL] Increased wait to allow server processing (Fix Race Condition)
+                    time.sleep(3.0) 
+                    
                     try:
                         page.wait_for_selector("div.global-error, a[href*='appointment_showDay'], h2:has-text('Please select')", timeout=8000)
                     except:
                         try: page.wait_for_load_state("networkidle", timeout=5000)
                         except: pass
-                    time.sleep(3)  
+                        
                 else:
                     return False
             
@@ -724,9 +726,11 @@ class EliteSniperV2:
         except: proxy = None
         
         try:
+            worker_logger.info("Opening browser context...")
             context, page, session = self.create_context(self.browser, worker_id, proxy)
             self.current_page = page 
             session.role = SessionRole.SCOUT
+            worker_logger.info("Context opened. Starting scanning loop...")
             
             max_cycles = 1000  
             
@@ -795,14 +799,27 @@ class EliteSniperV2:
             send_alert(f"[Elite Sniper v{self.VERSION} Started]")
             
             with sync_playwright() as p:
-                # Add cleanup logic for the browser itself
+                # [FIX] Critical Browser Args to prevent Docker Freezing
+                browser_args = [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage", # Critical for Docker memory issues
+                    "--disable-accelerated-2d-canvas",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--single-process", 
+                    "--disable-gpu"
+                ]
+                
+                # Merge with config args if needed, but ensure critical ones are present
+                launch_args = list(set(Config.BROWSER_ARGS + browser_args))
+                
                 self.browser = None
                 try:
-                    self.browser = p.chromium.launch(headless=Config.HEADLESS, args=Config.BROWSER_ARGS, timeout=90000)
+                    self.browser = p.chromium.launch(headless=Config.HEADLESS, args=launch_args, timeout=90000)
                     worker_id = 1  
                     self._run_single_session(self.browser, worker_id=worker_id)
                 finally:
-                    # [FIX] Ensure browser closes to prevent zombie processes
                     if self.browser:
                         try:
                             self.browser.close()
