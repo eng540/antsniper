@@ -664,7 +664,7 @@ class EliteSniperV2:
                     except:
                         try: page.wait_for_load_state("networkidle", timeout=5000)
                         except: pass
-                    time.sleep(0.5)  
+                    time.sleep(3)  
                 else:
                     return False
             
